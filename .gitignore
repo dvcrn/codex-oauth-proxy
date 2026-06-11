@@ -12,5 +12,5 @@ captured_logs/
 npm/codex-oauth-proxy
 npm/codex-oauth-proxy.exe
 codex-oauth-proxy.service
-com.codex-oauth-proxy.plist
+sh.d.codex-oauth-proxy.plist
 dist

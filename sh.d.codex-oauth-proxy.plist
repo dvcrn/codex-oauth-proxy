@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.codex-oauth-proxy</string>
+    <string>sh.d.codex-oauth-proxy</string>
 
     <key>Program</key>
     <string>/Users/david/src/codex-oauth-proxy/run_proxy.sh</string>
