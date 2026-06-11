@@ -7,6 +7,11 @@
     "url": "git+https://github.com/dvcrn/codex-oauth-proxy.git",
     "directory": "npm"
   },
+  "files": [
+    "index.js",
+    "postinstall.js",
+    "update_check.js"
+  ],
   "scripts": {
     "postinstall": "node postinstall.js"
   },
