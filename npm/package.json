@@ -2,6 +2,11 @@
   "name": "@dvcrn/codex-oauth-proxy",
   "version": "1.0.0",
   "description": "Release package for codex-oauth-proxy",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dvcrn/codex-oauth-proxy.git",
+    "directory": "npm"
+  },
   "scripts": {
     "postinstall": "node postinstall.js"
   },

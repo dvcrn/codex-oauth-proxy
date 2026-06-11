@@ -30,7 +30,13 @@ Option 1 (recommended): install a prebuilt binary via npm (macOS, Linux, Windows
 npm install -g @dvcrn/codex-oauth-proxy
 ```
 
-Option 2: install from source with Go:
+Option 2: install with mise:
+
+```bash
+mise use -g go:github.com/dvcrn/codex-oauth-proxy/cmd/codex-oauth-proxy@latest
+```
+
+Option 3: install from source with Go:
 
 ```bash
 go install github.com/dvcrn/codex-oauth-proxy/cmd/codex-oauth-proxy@latest
