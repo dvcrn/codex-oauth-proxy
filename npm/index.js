@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 
+const { installBinary } = require("./postinstall");
 const { startUpdateCheck } = require("./update_check");
 
 const exe = process.platform === "win32" ? "codex-oauth-proxy.exe" : "codex-oauth-proxy";
@@ -16,35 +17,49 @@ const PKG = (() => {
   }
 })();
 
-if (!fs.existsSync(binPath)) {
-  console.error(`Binary not found: ${binPath}`);
+async function main() {
+  if (!fs.existsSync(binPath)) {
+    await installBinary();
+  }
+
+  if (!fs.existsSync(binPath)) {
+    console.error(`Binary not found: ${binPath}`);
+    process.exit(1);
+  }
+
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(binPath, 0o755);
+    } catch {}
+  }
+
+  const child = spawn(binPath, process.argv.slice(2), {
+    stdio: "inherit",
+    windowsHide: true,
+  });
+
+  // Best-effort update notice (cached + short timeout).
+  // Aborts on command exit so it never delays shutdown.
+  const updateAbort = new AbortController();
+  startUpdateCheck({
+    installedVersion: PKG && PKG.version,
+    signal: updateAbort.signal,
+  });
+
+  child.on("exit", (code) => {
+    try {
+      updateAbort.abort();
+    } catch {}
+    process.exitCode = code == null ? 1 : code;
+  });
+  child.on("error", (err) => {
+    console.error(err.message);
+    try { updateAbort.abort(); } catch {}
+    process.exit(1);
+  });
+}
+
+main().catch((err) => {
+  console.error(`codex-oauth-proxy: failed to install binary: ${err.message}`);
   process.exit(1);
-}
-
-if (process.platform !== "win32") {
-  try {
-    fs.chmodSync(binPath, 0o755);
-  } catch {}
-}
-
-const child = spawn(binPath, process.argv.slice(2), {
-  stdio: "inherit",
-  windowsHide: true,
 });
-
-// Best-effort update notice (cached + short timeout).
-// Aborts on command exit so it never delays shutdown.
-const updateAbort = new AbortController();
-startUpdateCheck({ installedVersion: PKG && PKG.version, signal: updateAbort.signal });
-
-child.on("exit", (code) => {
-  try {
-    updateAbort.abort();
-  } catch {}
-  process.exitCode = code == null ? 1 : code;
-});
-child.on("error", (err) => {
-  console.error(err.message);
-  process.exitCode = 1;
-});
-
