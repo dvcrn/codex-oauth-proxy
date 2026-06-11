@@ -2,4 +2,4 @@
 
 set -e
 
-direnv exec . go run cmd/codex-proxy/main.go
+direnv exec . go run cmd/codex-oauth-proxy/main.go

@@ -15,6 +15,22 @@ func DefaultCredsPath() string {
 		}
 		xdgConfigHome = filepath.Join(homeDir, ".config")
 	}
+	return filepath.Join(xdgConfigHome, "codex-oauth-proxy", "auth.json")
+}
+
+// OldDefaultCredsPath returns the XDG credentials path used before the project
+// was renamed to codex-oauth-proxy. It is consulted during migration so that
+// users upgrading from the old codex-proxy default are not left without
+// credentials at the new default location.
+func OldDefaultCredsPath() string {
+	xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
+	if xdgConfigHome == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		xdgConfigHome = filepath.Join(homeDir, ".config")
+	}
 	return filepath.Join(xdgConfigHome, "codex-proxy", "auth.json")
 }
 

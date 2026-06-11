@@ -27,13 +27,13 @@ This proxy exposes ChatGPT Codex (Plus/Pro subscription) through an OpenAI-compa
 Option 1 (recommended): install a prebuilt binary via npm (macOS, Linux, Windows):
 
 ```bash
-npm install -g @dvcrn/codex-proxy
+npm install -g @dvcrn/codex-oauth-proxy
 ```
 
 Option 2: install from source with Go:
 
 ```bash
-go install github.com/dvcrn/codex-proxy/cmd/codex-proxy@latest
+go install github.com/dvcrn/codex-oauth-proxy/cmd/codex-oauth-proxy@latest
 ```
 
 ## Setup
@@ -44,7 +44,7 @@ The proxy now uses **independent credential storage** to avoid token collisions 
 
 **Default behavior (`--creds-store=auto`)**:
 
-- Stores credentials in `~/.config/codex-proxy/auth.json` (XDG config directory)
+- Stores credentials in `~/.config/codex-oauth-proxy/auth.json` (XDG config directory)
 - On first launch, automatically migrates from:
   1. Legacy file (`~/.codex/auth.json`) if it exists
   2. System Keychain if no legacy file found
@@ -55,29 +55,29 @@ The proxy now uses **independent credential storage** to avoid token collisions 
 
 ```bash
 # Auto migration (default) - uses XDG config directory
-./codex-proxy --creds-store=auto
+./codex-oauth-proxy --creds-store=auto
 
 # Explicit XDG path
-./codex-proxy --creds-store=xdg
+./codex-oauth-proxy --creds-store=xdg
 
 # Custom path
-./codex-proxy --creds-store=xdg --creds-path=/custom/path/auth.json
+./codex-oauth-proxy --creds-store=xdg --creds-path=/custom/path/auth.json
 
 # Legacy mode (shares with system CLI)
-./codex-proxy --creds-store=legacy --creds-path=~/.codex/auth.json
+./codex-oauth-proxy --creds-store=legacy --creds-path=~/.codex/auth.json
 
 # Keychain mode (macOS only)
-./codex-proxy --creds-store=keychain
+./codex-oauth-proxy --creds-store=keychain
 
 # Environment variables mode
-./codex-proxy --creds-store=env
+./codex-oauth-proxy --creds-store=env
 ```
 
 **Migration flags**:
 
 ```bash
 # Skip immediate token refresh after migration (not recommended)
-./codex-proxy --disable-migrate-refresh
+./codex-oauth-proxy --disable-migrate-refresh
 ```
 
 **Environment variables** (for `--creds-store=env` mode):
@@ -110,7 +110,7 @@ The server provides detailed logging during migration:
 - If migration fails, the server will continue with existing credentials if available
 - Check logs for detailed error messages
 - Use `--creds-store=legacy` to temporarily revert to old behavior
-- Manually inspect `~/.config/codex-proxy/auth.json` for credential status
+- Manually inspect `~/.config/codex-oauth-proxy/auth.json` for credential status
 
 ## Usage
 

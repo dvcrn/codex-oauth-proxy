@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/dvcrn/codex-proxy/internal/env"
+	"github.com/dvcrn/codex-oauth-proxy/internal/env"
 )
 
 // adminMiddleware checks for valid admin API key from either

@@ -9,7 +9,7 @@
 .envrc
 
 # Build artifacts
-claude-code-proxy
+codex-oauth-proxy
 *.exe
 
 # IDE and editor files

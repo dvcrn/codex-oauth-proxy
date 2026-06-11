@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dvcrn/codex-proxy/internal/credentials"
+	"github.com/dvcrn/codex-oauth-proxy/internal/credentials"
 	"github.com/rs/zerolog"
 )
 

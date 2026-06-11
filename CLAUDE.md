@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is a Go proxy server that translates OpenAI-compatible chat completions requests to Anthropic's Messages API format. It intercepts requests meant for OpenAI's API and forwards them to Claude's API with appropriate transformations.
+This is a Go proxy server that translates OpenAI-compatible chat completions requests into ChatGPT Codex's Responses API format. It accepts requests in the OpenAI Chat Completions / Responses format and forwards them to the upstream ChatGPT Codex backend (`https://chatgpt.com/backend-api/codex/responses`) with appropriate transformations, using Codex CLI OAuth credentials and headers.
 
 The server uses zerolog for structured JSON logging with zero allocations and high performance.
 
@@ -47,23 +47,24 @@ just clean
 ### Package Structure
 
 The codebase follows Go conventions with internal packages:
-- `cmd/claude-code-proxy/`: Entry point - minimal main function that starts the server
+- `cmd/codex-oauth-proxy/`: Entry point - minimal main function that starts the server
 - `internal/server/`: Core server implementation
   - `server.go`: HTTP server setup, routing, and request handling
   - `types.go`: Data structures and JSON marshaling logic
   - `transform.go`: Message and system prompt transformation functions
   - `transform_test.go`: Unit tests for transformation logic
-  - `prompts.go`: Claude Code system prompts and identity messages
+  - `prompts.go`: Codex CLI system prompts and identity messages
 
 ### Core Components
 
 - **Server Package** (`internal/server/`): Handles all server logic
   - HTTP server with structured logging middleware using zerolog
-  - `/v1/messages` endpoint processes chat completion requests
-  - `/health` endpoint for health checks (returns `{"status": "ok"}`)
-  - Transforms OpenAI format to Anthropic format
-  - Adds Claude Code specific system prompts
-  - Manages cache control and ephemeral message limits
+  - `/v1/chat/completions` and `/v1/responses` endpoints process incoming requests
+  - `/v1/models` lists available models; `/health` for health checks (returns `{"status": "ok"}`)
+  - `/admin/credentials` and `/admin/credentials/status` manage stored OAuth credentials
+  - Transforms the OpenAI-compatible request into the ChatGPT Codex Responses API format
+  - Injects the Codex CLI system prompt / instructions
+  - Rewrites the upstream SSE stream back into the client-facing format
 
 ### API Endpoints
 
@@ -81,29 +82,27 @@ The proxy provides two primary modes of operation via distinct endpoints:
 
 1. **System Prompt Transformation** (`transformSystemPrompt`):
 
-   - Prepends Claude Code identity messages
-   - Replaces competitor names with "Claude Code"
-   - Manages ephemeral cache control (max 4 messages)
+   - Prepends the Codex CLI identity / instructions prompt
+   - Replaces competitor names with "Codex"
 
-2. **Message Processing** (`transformMessages`):
+2. **Message Processing** (`transformMessages` / `buildCodexInputMessages`):
 
    - Replaces competitor names in message content
-   - Manages ephemeral cache control limits
+   - Maps OpenAI-style messages and tools into the Codex input format
 
-3. **Request Modifications**:
-   - Sets max_tokens to 32000
-   - Forces streaming mode
-   - Adds user metadata
-   - Configures Anthropic-specific headers
+3. **Request Modifications** (`buildCodexRequestBody`):
+   - Normalizes the requested model and reasoning effort/summary settings
+   - Forces streaming mode and derives a prompt cache key
+   - Configures Codex-specific headers (Codex CLI user-agent, ChatGPT account ID, beta feature flags)
 
 ### Environment Requirements
 
-The server requires these environment variables:
+The server reads these environment variables:
 
-- `ANTHROPIC_API_KEY`: API key for Anthropic's service
-- `CLAUDE_USER_ID`: User ID for metadata tracking
+- `PORT`: TCP port to listen on (defaults to `9879`)
+- `ADMIN_API_KEY`: required by the admin middleware to authorize requests to the proxy and `/admin` endpoints
 
-Use the `update-env.sh` fish script to pull credentials from macOS Keychain and store them in chainenv.
+Upstream authentication uses Codex CLI OAuth credentials, selected via the `--creds-store` flag (`auto|xdg|legacy|keychain|env`); see the README for details. The `env` store mode (`--creds-store=env`) is a legacy path that still reads `ANTHROPIC_API_KEY` and `CLAUDE_USER_ID` — vestigial variable names left over from this project's origins.
 
 ### Docker Deployment
 
@@ -153,8 +152,8 @@ Common fields used throughout the application:
 ### Example Log Output
 
 ```json
-{"level":"info","time":1516134303,"method":"POST","uri":"/v1/messages","remote_addr":"127.0.0.1:54321","user_agent":"curl/7.68.0","message":"Incoming request"}
-{"level":"info","time":1516134304,"method":"POST","uri":"/v1/messages","duration":1023,"message":"Finished request"}
+{"level":"info","time":1516134303,"method":"POST","uri":"/v1/responses","remote_addr":"127.0.0.1:54321","user_agent":"curl/7.68.0","message":"Incoming request"}
+{"level":"info","time":1516134304,"method":"POST","uri":"/v1/responses","duration":1023,"message":"Finished request"}
 ```
 
 ## Code Organization Principles
@@ -201,7 +200,7 @@ Files for regular environments use:
 
 ### Project Structure for Workers
 
-- `cmd/claude-code-proxy-worker/`: Workers-specific entry point
+- `cmd/codex-oauth-proxy-worker/`: Workers-specific entry point
 - `internal/app/`: Shared application logic between regular and Workers builds
 - Platform-specific files use `_workers.go` suffix for Workers implementations
 

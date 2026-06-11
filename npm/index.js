@@ -6,7 +6,7 @@ const { spawn } = require("child_process");
 const { installBinary } = require("./postinstall");
 const { startUpdateCheck } = require("./update_check");
 
-const exe = process.platform === "win32" ? "codex-proxy.exe" : "codex-proxy";
+const exe = process.platform === "win32" ? "codex-oauth-proxy.exe" : "codex-oauth-proxy";
 const binPath = path.join(__dirname, exe);
 
 const PKG = (() => {
@@ -60,6 +60,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(`codex-proxy: failed to install binary: ${err.message}`);
+  console.error(`codex-oauth-proxy: failed to install binary: ${err.message}`);
   process.exit(1);
 });

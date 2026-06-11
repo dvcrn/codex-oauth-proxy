@@ -1,4 +1,4 @@
-module github.com/dvcrn/codex-proxy
+module github.com/dvcrn/codex-oauth-proxy
 
 go 1.25.7
 

@@ -14,7 +14,7 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o claude-code-proxy ./cmd/claude-code-proxy
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o codex-oauth-proxy ./cmd/codex-oauth-proxy
 
 # Final stage - minimal image
 FROM alpine:latest
@@ -29,10 +29,10 @@ RUN addgroup -g 1001 appgroup && \
 WORKDIR /root/
 
 # Copy the binary from builder stage
-COPY --from=builder /app/claude-code-proxy .
+COPY --from=builder /app/codex-oauth-proxy .
 
 # Change ownership to non-root user
-RUN chown appuser:appgroup claude-code-proxy
+RUN chown appuser:appgroup codex-oauth-proxy
 
 # Switch to non-root user
 USER appuser
@@ -41,4 +41,4 @@ USER appuser
 EXPOSE 8080
 
 # Run the binary
-CMD ["./claude-code-proxy"]
+CMD ["./codex-oauth-proxy"]

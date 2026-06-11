@@ -2,8 +2,8 @@
 go = "1.25.7"
 
 [tasks.build]
-run = "go build -o ./codex-proxy ./cmd/codex-proxy"
-description = "Build the codex-proxy binary"
+run = "go build -o ./codex-oauth-proxy ./cmd/codex-oauth-proxy"
+description = "Build the codex-oauth-proxy binary"
 
 [tasks.test]
 run = "go test ./..."

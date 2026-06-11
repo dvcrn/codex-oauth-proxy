@@ -1,11 +1,11 @@
 version: 2
 
-project_name: codex-proxy
+project_name: codex-oauth-proxy
 
 builds:
-  - id: codex-proxy
-    main: ./cmd/codex-proxy
-    binary: codex-proxy
+  - id: codex-oauth-proxy
+    main: ./cmd/codex-oauth-proxy
+    binary: codex-oauth-proxy
     env:
       - CGO_ENABLED=0
     goos:
@@ -41,7 +41,7 @@ checksum:
 release:
   github:
     owner: dvcrn
-    name: codex-proxy
+    name: codex-oauth-proxy
   replace_existing_artifacts: true
 
 changelog:

@@ -8,7 +8,7 @@ if [[ "$(uname -s)" != "Linux" ]]; then
 fi
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVICE_NAME="codex-proxy"
+SERVICE_NAME="codex-oauth-proxy"
 SERVICE_FILE_LOCAL="${PROJECT_DIR}/${SERVICE_NAME}.service"
 SERVICE_FILE_SYSTEM="/etc/systemd/system/${SERVICE_NAME}.service"
 
@@ -41,7 +41,7 @@ WorkingDirectory=${PROJECT_DIR}
 Environment=HOME=${HOME}
 Environment=PORT=${PORT}
 Environment=ADMIN_API_KEY=${ADMIN_API_KEY}
-ExecStart=${PROJECT_DIR}/codex-proxy
+ExecStart=${PROJECT_DIR}/codex-oauth-proxy
 Restart=on-failure
 RestartSec=5
 
@@ -74,6 +74,22 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
 fi
 
 cp "${SERVICE_FILE_LOCAL}" "${SERVICE_FILE_SYSTEM}"
+
+# Retire the pre-rename unit so the old binary does not keep the port bound.
+OLD_SERVICE_NAME="codex-proxy"
+if [[ "${OLD_SERVICE_NAME}" != "${SERVICE_NAME}" ]]; then
+  OLD_SERVICE_FILE_SYSTEM="/etc/systemd/system/${OLD_SERVICE_NAME}.service"
+  if systemctl list-unit-files "${OLD_SERVICE_NAME}.service" >/dev/null 2>&1 \
+     && systemctl cat "${OLD_SERVICE_NAME}.service" >/dev/null 2>&1; then
+    echo "Stopping and disabling old unit ${OLD_SERVICE_NAME}.service..."
+    systemctl disable --now "${OLD_SERVICE_NAME}.service" 2>/dev/null || true
+  fi
+  if [[ -f "${OLD_SERVICE_FILE_SYSTEM}" ]]; then
+    echo "Removing old unit file ${OLD_SERVICE_FILE_SYSTEM}..."
+    rm -f "${OLD_SERVICE_FILE_SYSTEM}"
+  fi
+fi
+
 systemctl daemon-reload
 systemctl enable --now "${SERVICE_NAME}.service"
 
