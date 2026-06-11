@@ -19,6 +19,21 @@ echo "Project directory: ${PROJECT_DIR}"
 
 mkdir -p "${LAUNCHAGENTS_DIR}"
 
+# Clean up any agent installed under the pre-rename label so the old binary
+# does not keep running on the same port after the upgrade.
+OLD_LABELS=("com.codex-proxy" "com.codex-oauth-proxy")
+for OLD_LABEL in "${OLD_LABELS[@]}"; do
+    OLD_PLIST="${LAUNCHAGENTS_DIR}/${OLD_LABEL}.plist"
+    if launchctl list | grep -q "${OLD_LABEL}"; then
+        echo "Unloading old LaunchAgent (${OLD_LABEL})..."
+        launchctl unload "${OLD_PLIST}" 2>/dev/null || true
+    fi
+    if [ -e "${OLD_PLIST}" ] || [ -L "${OLD_PLIST}" ]; then
+        echo "Removing old plist (${OLD_PLIST})..."
+        rm -f "${OLD_PLIST}"
+    fi
+done
+
 cat > "${PLIST_LOCAL}" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

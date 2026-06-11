@@ -121,41 +121,58 @@ func maybeMigrateCredentials(targetPath string, disableRefresh bool, log zerolog
 		Str("target_path", targetPath).
 		Msg("📦 Target credentials file not found, attempting migration")
 
-	legacyPath := credentials.LegacyCredsPath()
-	log.Info().
-		Str("legacy_path", legacyPath).
-		Msg("🔍 Checking for legacy credentials file")
+	// Source files to check in priority order before falling back to keychain:
+	//  1. the old XDG path used before the codex-proxy -> codex-oauth-proxy rename
+	//  2. the legacy ~/.codex/auth.json path
+	fileSources := []struct {
+		path  string
+		label string
+	}{
+		{credentials.OldDefaultCredsPath(), "old XDG file"},
+		{credentials.LegacyCredsPath(), "legacy file"},
+	}
 
 	var migratedCreds *credentials.OAuthCredentials
 	var sourceType string
 
-	if credentials.FileExists(legacyPath) {
-		log.Info().
-			Str("legacy_path", legacyPath).
-			Msg("📄 Found legacy credentials file, reading OAuth tokens")
+	for _, src := range fileSources {
+		if src.path == "" || !credentials.FileExists(src.path) {
+			log.Info().
+				Str("source_path", src.path).
+				Str("source", src.label).
+				Msg("🔍 No credentials at this path, continuing")
+			continue
+		}
 
-		fsFetcher := credentials.NewFSCredentialsFetcher(legacyPath)
+		log.Info().
+			Str("source_path", src.path).
+			Str("source", src.label).
+			Msg("📄 Found credentials file, reading OAuth tokens")
+
+		fsFetcher := credentials.NewFSCredentialsFetcher(src.path)
 		creds, err := fsFetcher.GetFullCredentials()
 		if err != nil {
 			log.Error().
 				Err(err).
-				Str("legacy_path", legacyPath).
-				Msg("❌ Failed to read legacy credentials file")
+				Str("source_path", src.path).
+				Msg("❌ Failed to read credentials file")
 			return err
 		}
 
 		migratedCreds = creds
-		sourceType = "legacy file"
+		sourceType = src.label
 
 		log.Info().
 			Str("user_id", creds.UserID).
 			Int64("expires_at", creds.ExpiresAt).
 			Str("source", sourceType).
-			Msg("✅ Successfully read credentials from legacy file")
-	} else {
+			Msg("✅ Successfully read credentials from file")
+		break
+	}
+
+	if migratedCreds == nil {
 		log.Info().
-			Str("legacy_path", legacyPath).
-			Msg("⚠️  Legacy credentials file not found, trying keychain")
+			Msg("⚠️  No credentials files found, trying keychain")
 
 		keychainCreds, err := credentials.ReadOAuthFromKeychain()
 		if err != nil {
