@@ -19,8 +19,9 @@ builds:
     goarm:
       - 7
     ignore:
-      # Windows ARMv7 isn't a thing we want to ship.
       - goos: windows
+        goarch: arm
+      - goos: darwin
         goarch: arm
     flags:
       - -trimpath
