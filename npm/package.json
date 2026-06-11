@@ -1,7 +1,7 @@
 {
-  "name": "@dvcrn/codex-proxy",
+  "name": "@dvcrn/codex-oauth-proxy",
   "version": "1.0.0",
-  "description": "Release package for codex-proxy",
+  "description": "Release package for codex-oauth-proxy",
   "scripts": {
     "postinstall": "node postinstall.js"
   },
@@ -9,7 +9,7 @@
     "access": "public"
   },
   "bin": {
-    "codex-proxy": "index.js"
+    "codex-oauth-proxy": "index.js"
   },
   "dependencies": {
     "semver": "^7.7.4"

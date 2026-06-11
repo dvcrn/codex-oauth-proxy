@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/dvcrn/codex-proxy/internal/app"
-	"github.com/dvcrn/codex-proxy/internal/auth"
-	"github.com/dvcrn/codex-proxy/internal/credentials"
-	"github.com/dvcrn/codex-proxy/internal/logger"
+	"github.com/dvcrn/codex-oauth-proxy/internal/app"
+	"github.com/dvcrn/codex-oauth-proxy/internal/auth"
+	"github.com/dvcrn/codex-oauth-proxy/internal/credentials"
+	"github.com/dvcrn/codex-oauth-proxy/internal/logger"
 	"github.com/rs/zerolog"
 )
 
@@ -23,7 +23,7 @@ func main() {
 	log.Info().
 		Str("creds_store", *credsStore).
 		Str("creds_path", *credsPath).
-		Msg("🚀 Starting codex-proxy with credential configuration")
+		Msg("🚀 Starting codex-oauth-proxy with credential configuration")
 
 	var credsFetcher credentials.CredentialsFetcher
 	var fsPath string

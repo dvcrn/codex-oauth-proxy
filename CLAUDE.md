@@ -47,7 +47,7 @@ just clean
 ### Package Structure
 
 The codebase follows Go conventions with internal packages:
-- `cmd/claude-code-proxy/`: Entry point - minimal main function that starts the server
+- `cmd/codex-oauth-proxy/`: Entry point - minimal main function that starts the server
 - `internal/server/`: Core server implementation
   - `server.go`: HTTP server setup, routing, and request handling
   - `types.go`: Data structures and JSON marshaling logic
@@ -201,7 +201,7 @@ Files for regular environments use:
 
 ### Project Structure for Workers
 
-- `cmd/claude-code-proxy-worker/`: Workers-specific entry point
+- `cmd/codex-oauth-proxy-worker/`: Workers-specific entry point
 - `internal/app/`: Shared application logic between regular and Workers builds
 - Platform-specific files use `_workers.go` suffix for Workers implementations
 

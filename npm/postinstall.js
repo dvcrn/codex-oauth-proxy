@@ -7,8 +7,8 @@ const crypto = require("crypto");
 const { spawnSync } = require("child_process");
 
 const OWNER = "dvcrn";
-const REPO = "codex-proxy";
-const BIN = "codex-proxy";
+const REPO = "codex-oauth-proxy";
+const BIN = "codex-oauth-proxy";
 const VERSION_ENV = "CODEX_PROXY_VERSION";
 const BASE_URL_ENV = "CODEX_PROXY_BASE_URL";
 const ARCH_ENV = "CODEX_PROXY_ARCH";
@@ -70,7 +70,7 @@ function parseChecksums(text) {
     const platformRaw = process.env[PLATFORM_ENV] || process.platform;
     const platform = platformRaw === "win32" ? "windows" : platformRaw;
     if (!["darwin", "linux", "windows"].includes(platform)) {
-      console.error("codex-proxy: npm install supports macOS (darwin), Linux, and Windows only");
+      console.error("codex-oauth-proxy: npm install supports macOS (darwin), Linux, and Windows only");
       process.exit(1);
     }
 

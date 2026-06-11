@@ -20,7 +20,7 @@ func TestDefaultCredsPath(t *testing.T) {
 		os.Setenv("XDG_CONFIG_HOME", testPath)
 
 		result := DefaultCredsPath()
-		expected := filepath.Join(testPath, "codex-proxy", "auth.json")
+		expected := filepath.Join(testPath, "codex-oauth-proxy", "auth.json")
 
 		if result != expected {
 			t.Errorf("Expected %s, got %s", expected, result)
@@ -34,7 +34,7 @@ func TestDefaultCredsPath(t *testing.T) {
 		os.Unsetenv("XDG_CONFIG_HOME")
 
 		result := DefaultCredsPath()
-		expected := filepath.Join(homeDir, ".config", "codex-proxy", "auth.json")
+		expected := filepath.Join(homeDir, ".config", "codex-oauth-proxy", "auth.json")
 
 		if result != expected {
 			t.Errorf("Expected %s, got %s", expected, result)

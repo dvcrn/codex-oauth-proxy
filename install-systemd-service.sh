@@ -8,7 +8,7 @@ if [[ "$(uname -s)" != "Linux" ]]; then
 fi
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVICE_NAME="codex-proxy"
+SERVICE_NAME="codex-oauth-proxy"
 SERVICE_FILE_LOCAL="${PROJECT_DIR}/${SERVICE_NAME}.service"
 SERVICE_FILE_SYSTEM="/etc/systemd/system/${SERVICE_NAME}.service"
 
@@ -41,7 +41,7 @@ WorkingDirectory=${PROJECT_DIR}
 Environment=HOME=${HOME}
 Environment=PORT=${PORT}
 Environment=ADMIN_API_KEY=${ADMIN_API_KEY}
-ExecStart=${PROJECT_DIR}/codex-proxy
+ExecStart=${PROJECT_DIR}/codex-oauth-proxy
 Restart=on-failure
 RestartSec=5
 

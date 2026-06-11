@@ -1,13 +1,13 @@
 #!/bin/bash
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLIST_NAME="com.codex-proxy.plist"
+PLIST_NAME="com.codex-oauth-proxy.plist"
 PLIST_LOCAL="${PROJECT_DIR}/${PLIST_NAME}"
 PLIST_SYMLINK="${HOME}/Library/LaunchAgents/${PLIST_NAME}"
 
-echo "Uninstalling codex-proxy LaunchAgent..."
+echo "Uninstalling codex-oauth-proxy LaunchAgent..."
 
-if launchctl list | grep -q "com.codex-proxy"; then
+if launchctl list | grep -q "com.codex-oauth-proxy"; then
     echo "Stopping service..."
     launchctl unload "${PLIST_SYMLINK}" 2>/dev/null || true
     echo "Service stopped"

@@ -1,25 +1,25 @@
-# justfile for claude-code-proxy
+# justfile for codex-oauth-proxy
 
 # Build the Go server (Codex proxy)
 build: format
-	go build -o codex-proxy ./cmd/codex-proxy
+	go build -o codex-oauth-proxy ./cmd/codex-oauth-proxy
 
 wrangler-dev: 
 	bunx wrangler dev
 
 # Run the Go server
 run:
-	go run ./cmd/codex-proxy
+	go run ./cmd/codex-oauth-proxy
 
 # Install the binary to GOPATH/bin
 install:
-	go install ./cmd/codex-proxy
-	@echo "codex-proxy installed to GOPATH/bin"
+	go install ./cmd/codex-oauth-proxy
+	@echo "codex-oauth-proxy installed to GOPATH/bin"
 
 # Uninstall the binary from GOPATH/bin
 uninstall:
-	rm -f $(go env GOPATH)/bin/codex-proxy
-	@echo "codex-proxy uninstalled from GOPATH/bin"
+	rm -f $(go env GOPATH)/bin/codex-oauth-proxy
+	@echo "codex-oauth-proxy uninstalled from GOPATH/bin"
 
 # Format code with gofmt
 fmt:
@@ -35,7 +35,7 @@ test:
 
 # Clean build artifacts
 clean:
-	rm -f codex-proxy
+	rm -f codex-oauth-proxy
 
 # Build and push Docker image to GitHub Container Registry
 docker-build:
@@ -49,13 +49,13 @@ docker-build:
 	docker buildx build \
 		--platform linux/amd64,linux/arm64 \
 		--secret id=github_token,env=GITHUB_TOKEN \
-		-t ghcr.io/dvcrn/claude-code-proxy:latest \
+		-t ghcr.io/dvcrn/codex-oauth-proxy:latest \
 		. --push
 
 # Build for Cloudflare Workers
 build-worker:
 	go run github.com/syumai/workers/cmd/workers-assets-gen -mode=go
-	GOOS=js GOARCH=wasm go build -o ./build/app.wasm cmd/claude-code-proxy-worker/main.go
+	GOOS=js GOARCH=wasm go build -o ./build/app.wasm cmd/codex-oauth-proxy-worker/main.go
 
 # Show help
 help:

@@ -5,7 +5,7 @@ const { spawn } = require("child_process");
 
 const { startUpdateCheck } = require("./update_check");
 
-const exe = process.platform === "win32" ? "codex-proxy.exe" : "codex-proxy";
+const exe = process.platform === "win32" ? "codex-oauth-proxy.exe" : "codex-oauth-proxy";
 const binPath = path.join(__dirname, exe);
 
 const PKG = (() => {

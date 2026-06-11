@@ -15,7 +15,7 @@ func DefaultCredsPath() string {
 		}
 		xdgConfigHome = filepath.Join(homeDir, ".config")
 	}
-	return filepath.Join(xdgConfigHome, "codex-proxy", "auth.json")
+	return filepath.Join(xdgConfigHome, "codex-oauth-proxy", "auth.json")
 }
 
 func LegacyCredsPath() string {

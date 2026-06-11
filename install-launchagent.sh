@@ -9,12 +9,12 @@ if [ -z "${ADMIN_API_KEY}" ]; then
 fi
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLIST_NAME="com.codex-proxy.plist"
+PLIST_NAME="com.codex-oauth-proxy.plist"
 PLIST_LOCAL="${PROJECT_DIR}/${PLIST_NAME}"
 LAUNCHAGENTS_DIR="${HOME}/Library/LaunchAgents"
 PLIST_SYMLINK="${LAUNCHAGENTS_DIR}/${PLIST_NAME}"
 
-echo "Installing codex-proxy LaunchAgent..."
+echo "Installing codex-oauth-proxy LaunchAgent..."
 echo "Project directory: ${PROJECT_DIR}"
 
 mkdir -p "${LAUNCHAGENTS_DIR}"
@@ -25,7 +25,7 @@ cat > "${PLIST_LOCAL}" <<EOF
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.codex-proxy</string>
+    <string>com.codex-oauth-proxy</string>
 
     <key>Program</key>
     <string>${PROJECT_DIR}/run_proxy.sh</string>
@@ -48,10 +48,10 @@ cat > "${PLIST_LOCAL}" <<EOF
     <integer>30</integer>
 
     <key>StandardOutPath</key>
-    <string>${HOME}/Library/Logs/codex-proxy.log</string>
+    <string>${HOME}/Library/Logs/codex-oauth-proxy.log</string>
 
     <key>StandardErrorPath</key>
-    <string>${HOME}/Library/Logs/codex-proxy.error.log</string>
+    <string>${HOME}/Library/Logs/codex-oauth-proxy.error.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
@@ -80,7 +80,7 @@ if [ -L "${PLIST_SYMLINK}" ]; then
     rm "${PLIST_SYMLINK}"
 fi
 
-if launchctl list | grep -q "com.codex-proxy"; then
+if launchctl list | grep -q "com.codex-oauth-proxy"; then
     echo "Unloading existing service..."
     launchctl unload "${PLIST_SYMLINK}" 2>/dev/null || true
 fi
@@ -97,17 +97,17 @@ echo "Loading service..."
 launchctl load "${PLIST_SYMLINK}"
 
 sleep 2
-if launchctl list | grep -q "com.codex-proxy"; then
+if launchctl list | grep -q "com.codex-oauth-proxy"; then
     echo "✅ LaunchAgent installed and started successfully!"
     echo ""
     echo "Service management commands:"
-    echo "  Check status:  launchctl list | grep codex-proxy"
-    echo "  View logs:     tail -f ~/Library/Logs/codex-proxy.log"
-    echo "  View errors:   tail -f ~/Library/Logs/codex-proxy.error.log"
+    echo "  Check status:  launchctl list | grep codex-oauth-proxy"
+    echo "  View logs:     tail -f ~/Library/Logs/codex-oauth-proxy.log"
+    echo "  View errors:   tail -f ~/Library/Logs/codex-oauth-proxy.error.log"
     echo "  Stop service:  launchctl unload ~/Library/LaunchAgents/${PLIST_NAME}"
     echo "  Start service: launchctl load ~/Library/LaunchAgents/${PLIST_NAME}"
     echo "  Uninstall:     ./uninstall-launchagent.sh"
 else
     echo "⚠️  Service may not have started correctly. Check logs at:"
-    echo "  ~/Library/Logs/codex-proxy.error.log"
+    echo "  ~/Library/Logs/codex-oauth-proxy.error.log"
 fi

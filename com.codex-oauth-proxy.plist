@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.codex-proxy</string>
+    <string>com.codex-oauth-proxy</string>
 
     <key>Program</key>
-    <string>/Users/david/src/codex-proxy/run_proxy.sh</string>
+    <string>/Users/david/src/codex-oauth-proxy/run_proxy.sh</string>
 
     <key>WorkingDirectory</key>
-    <string>/Users/david/src/codex-proxy</string>
+    <string>/Users/david/src/codex-oauth-proxy</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -26,10 +26,10 @@
     <integer>30</integer>
 
     <key>StandardOutPath</key>
-    <string>/Users/david/Library/Logs/codex-proxy.log</string>
+    <string>/Users/david/Library/Logs/codex-oauth-proxy.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/david/Library/Logs/codex-proxy.error.log</string>
+    <string>/Users/david/Library/Logs/codex-oauth-proxy.error.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>

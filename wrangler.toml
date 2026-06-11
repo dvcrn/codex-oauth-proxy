@@ -1,4 +1,4 @@
-name = "codex-proxy"
+name = "codex-oauth-proxy"
 main = "build/worker.mjs"
 compatibility_date = "2022-05-13"
 account_id = "02c07a2514d9a25f58c78a180bb8c6f3"
