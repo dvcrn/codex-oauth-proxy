@@ -27,7 +27,7 @@ This proxy exposes ChatGPT Codex (Plus/Pro subscription) through an OpenAI-compa
 Option 1 (recommended): install a prebuilt binary via npm (macOS, Linux, Windows):
 
 ```bash
-npm install -g @dvcrn/codex-oauth-proxy
+npm install -g codex-oauth-proxy
 ```
 
 Option 2: install with mise:

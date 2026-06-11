@@ -1,5 +1,5 @@
 {
-  "name": "@dvcrn/codex-oauth-proxy",
+  "name": "codex-oauth-proxy",
   "version": "1.0.1",
   "description": "Release package for codex-oauth-proxy",
   "repository": {
