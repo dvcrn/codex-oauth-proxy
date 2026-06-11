@@ -54,7 +54,8 @@ async function main() {
   });
   child.on("error", (err) => {
     console.error(err.message);
-    process.exitCode = 1;
+    try { updateAbort.abort(); } catch {}
+    process.exit(1);
   });
 }
 

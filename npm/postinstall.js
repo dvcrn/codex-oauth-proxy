@@ -157,18 +157,20 @@ async function installBinary() {
   // extract only the binary into npm directory (archive contains binary at root)
   const tmpFile = path.join(os.tmpdir(), `${REPO}-${Date.now()}.tar.gz`);
   fs.writeFileSync(tmpFile, tarGz);
-  const tarRes = spawnSync("tar", ["-xzf", tmpFile, "-C", outDir, exe], {
-    stdio: "inherit",
-  });
-  if (tarRes.status !== 0) {
-    throw new Error("postinstall: failed to extract binary");
+  try {
+    const tarRes = spawnSync("tar", ["-xzf", tmpFile, "-C", outDir, exe], {
+      stdio: "inherit",
+    });
+    if (tarRes.status !== 0) {
+      try { fs.unlinkSync(binPath); } catch {}
+      throw new Error("postinstall: failed to extract binary");
+    }
+    try {
+      fs.chmodSync(binPath, 0o755);
+    } catch {}
+  } finally {
+    try { fs.unlinkSync(tmpFile); } catch {}
   }
-  try {
-    fs.chmodSync(binPath, 0o755);
-  } catch {}
-  try {
-    fs.unlinkSync(tmpFile);
-  } catch {}
   console.log(`postinstall: installed ${exe} to ${outDir}`);
 }
 
