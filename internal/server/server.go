@@ -561,14 +561,14 @@ func (s *Server) writeResponse(w http.ResponseWriter, resp *http.Response, statu
 				Msg("Received error response from upstream API")
 		}
 
-		// Copy headers from Anthropic's response to our response
+		// Copy headers from the upstream response to our response
 		for key, values := range resp.Header {
 			for _, value := range values {
 				w.Header().Add(key, value)
 			}
 		}
 
-		// Set the status code from Anthropic's response
+		// Set the status code from the upstream response
 		w.WriteHeader(statusCode)
 
 		// Write the error response body
@@ -605,7 +605,7 @@ func (s *Server) writeResponse(w http.ResponseWriter, resp *http.Response, statu
 			w.Header().Set("Connection", "keep-alive")
 		}
 
-		// Set the status code from Anthropic's response
+		// Set the status code from the upstream response
 		w.WriteHeader(statusCode)
 
 		flusher, canFlush := w.(http.Flusher)
