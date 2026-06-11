@@ -1,6 +1,5 @@
 [tools]
 go = "1.25.7"
-node = "20"
 
 [tasks.build]
 run = "go build -o ./codex-proxy ./cmd/codex-proxy"
