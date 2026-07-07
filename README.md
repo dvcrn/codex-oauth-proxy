@@ -98,6 +98,7 @@ export ACCOUNT_ID="your-account-id"
 ```bash
 export PORT="3000"  # default: 9879
 export ENV="production"  # default: development (console logs)
+export DISABLE_HEALTH_LOGS="true"  # default: false; disables request logging for /health
 ```
 
 **Migration logs**:

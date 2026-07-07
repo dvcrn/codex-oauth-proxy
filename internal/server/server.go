@@ -9,10 +9,12 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dvcrn/codex-oauth-proxy/internal/credentials"
+	"github.com/dvcrn/codex-oauth-proxy/internal/env"
 	"github.com/rs/zerolog"
 )
 
@@ -36,18 +38,22 @@ type HTTPClient interface {
 }
 
 type Server struct {
-	credsFetcher credentials.CredentialsFetcher
-	httpClient   HTTPClient
-	mux          *http.ServeMux
-	logger       zerolog.Logger
+	credsFetcher      credentials.CredentialsFetcher
+	httpClient        HTTPClient
+	mux               *http.ServeMux
+	logger            zerolog.Logger
+	disableHealthLogs bool
 }
 
 func New(logger zerolog.Logger, credsFetcher credentials.CredentialsFetcher) *Server {
+	disableHealthLogs, _ := strconv.ParseBool(env.GetOrDefault("DISABLE_HEALTH_LOGS", "false"))
+
 	s := &Server{
-		credsFetcher: credsFetcher,
-		httpClient:   NewHTTPClient(),
-		mux:          http.NewServeMux(),
-		logger:       logger,
+		credsFetcher:      credsFetcher,
+		httpClient:        NewHTTPClient(),
+		mux:               http.NewServeMux(),
+		logger:            logger,
+		disableHealthLogs: disableHealthLogs,
 	}
 
 	s.setupRoutes()
@@ -70,6 +76,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.disableHealthLogs && r.URL.Path == "/health" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		start := time.Now()
 		s.logger.Info().
 			Str("method", r.Method).
