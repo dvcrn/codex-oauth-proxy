@@ -304,6 +304,9 @@ func normalizeModel(model string) string {
 	}
 
 	// Prefer explicit new model IDs first to keep mapping predictable.
+	if lower == modelGPT5Sol {
+		return modelGPT5Sol
+	}
 	if lower == modelGPT55 {
 		return modelGPT55
 	}

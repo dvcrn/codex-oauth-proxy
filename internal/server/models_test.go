@@ -24,6 +24,7 @@ func TestSupportedModelsIncludesBaseAndSuffixVariants(t *testing.T) {
 		modelGPT53Codex,
 		modelGPT53CodexSpark,
 		modelGPT55,
+		modelGPT5Sol,
 		modelGPT5CodexMini,
 		modelGPT51CodexMini,
 	} {
@@ -58,6 +59,10 @@ func TestSupportedModelsIncludesBaseAndSuffixVariants(t *testing.T) {
 		"gpt-5.5-medium",
 		"gpt-5.5-high",
 		"gpt-5.5-xhigh",
+		"gpt-5.6-sol-low",
+		"gpt-5.6-sol-medium",
+		"gpt-5.6-sol-high",
+		"gpt-5.6-sol-xhigh",
 		"gpt-5-codex-high",
 		"gpt-5-codex-minimal",
 		"gpt-5.1-codex-medium",
