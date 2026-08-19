@@ -42,11 +42,16 @@ just format
 just clean
 ```
 
+### Releasing
+
+See [RELEASE.md](RELEASE.md) for full step-by-step instructions on cutting and publishing releases across GitHub Releases (GoReleaser), npm, and Docker.
+
 ## Architecture
 
 ### Package Structure
 
 The codebase follows Go conventions with internal packages:
+
 - `cmd/codex-oauth-proxy/`: Entry point - minimal main function that starts the server
 - `internal/server/`: Core server implementation
   - `server.go`: HTTP server setup, routing, and request handling
@@ -70,11 +75,11 @@ The codebase follows Go conventions with internal packages:
 
 The proxy provides two primary modes of operation via distinct endpoints:
 
-1.  **`/v1/responses` (Native Proxy)**
+1. **`/v1/responses` (Native Proxy)**
     - This is the primary endpoint for new integrations.
     - It accepts requests in the OpenAI Chat Completions format and forwards them to the upstream `/v1/responses` endpoint after applying necessary transformations.
 
-2.  **`/v1/completions` (Legacy Compatibility)**
+2. **`/v1/completions` (Legacy Compatibility)**
     - This endpoint provides backward compatibility for clients that still use the legacy `/v1/completions` API.
     - It accepts a legacy request, internally rewrites it into the modern `/v1/responses` format, and then forwards it upstream. This allows older clients to benefit from the new backend without modification.
 
@@ -142,6 +147,7 @@ The server uses [zerolog](https://github.com/rs/zerolog) for structured logging:
 ### Structured Fields
 
 Common fields used throughout the application:
+
 - `method`: HTTP method
 - `uri`: Request URI
 - `remote_addr`: Client IP address
@@ -159,6 +165,7 @@ Common fields used throughout the application:
 ## Code Organization Principles
 
 When adding new functionality:
+
 1. Keep the main function minimal - it should only initialize and start the server
 2. Use internal packages for implementation details that shouldn't be imported by external packages
 3. Separate concerns: types in `types.go`, transformations in `transform.go`, handlers in `server.go`
@@ -189,11 +196,13 @@ This server supports deployment to Cloudflare Workers using the github.com/syuma
 ### Build Tags
 
 Files specific to Cloudflare Workers use the build tags:
+
 ```go
 //go:build js && wasm
 ```
 
 Files for regular environments use:
+
 ```go
 //go:build !js || !wasm
 ```
