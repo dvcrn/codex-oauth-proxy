@@ -12,6 +12,7 @@ const (
 	modelGPT53Codex      = "gpt-5.3-codex"
 	modelGPT53CodexSpark = "gpt-5.3-codex-spark"
 	modelGPT55           = "gpt-5.5"
+	modelGPT5Sol         = "gpt-5.6-sol"
 
 	modelGPT5CodexMini  = "gpt-5-codex-mini"
 	modelGPT51CodexMini = "gpt-5.1-codex-mini"
@@ -28,6 +29,7 @@ var modelAllowedEfforts = map[string][]string{
 	modelGPT53Codex:      {"low", "medium", "high", "xhigh"},
 	modelGPT53CodexSpark: {"low", "medium", "high", "xhigh"},
 	modelGPT55:           {"low", "medium", "high", "xhigh"},
+	modelGPT5Sol:         {"low", "medium", "high", "xhigh"},
 	modelGPT5Codex:       {"minimal", "low", "medium", "high"},
 	modelGPT51:           {"low", "medium", "high"},
 	modelGPT51Codex:      {"low", "medium", "high"},
@@ -46,6 +48,7 @@ var modelDefaultEffort = map[string]string{
 	modelGPT53Codex:      "medium",
 	modelGPT53CodexSpark: "high",
 	modelGPT55:           "medium",
+	modelGPT5Sol:         "medium",
 	modelGPT51Codex:      "low",
 	modelGPT51CodexMax:   "low",
 	modelGPT5CodexMini:   "medium",
@@ -301,6 +304,38 @@ var modelMetadataByID = map[string]modelMetadata{
 		Vendor:  "OpenAI",
 		Version: "gpt-5.5",
 	},
+	modelGPT5Sol: {
+		Capabilities: map[string]interface{}{
+			"family": "gpt-5.6-sol",
+			"limits": map[string]interface{}{
+				"max_context_window_tokens": 1050000,
+				"max_output_tokens":         128000,
+				"max_prompt_tokens":         922000,
+				"vision": map[string]interface{}{
+					"max_prompt_image_size": 3145728,
+					"max_prompt_images":     1,
+					"supported_media_types": []string{"image/jpeg", "image/png", "image/webp", "image/gif"},
+				},
+			},
+			"object":    "model_capabilities",
+			"supports":  map[string]interface{}{"parallel_tool_calls": true, "streaming": true, "structured_outputs": true, "tool_calls": true, "vision": true},
+			"tokenizer": "o200k_base",
+			"type":      "chat",
+		},
+		ID:                  modelGPT5Sol,
+		ModelPickerCategory: "powerful",
+		ModelPickerEnabled:  true,
+		Name:                "GPT-5.6 Sol",
+		Object:              "model",
+		Policy: &modelPolicy{
+			State: "enabled",
+			Terms: "GPT-5.6 Sol via ChatGPT Codex subscription.",
+		},
+		Preview:            true,
+		SupportedEndpoints: []string{"/responses"},
+		Vendor:             "OpenAI",
+		Version:            "gpt-5.6-sol",
+	},
 	modelGPT5Codex: {
 		Capabilities: map[string]interface{}{
 			"family": "gpt-5-codex",
@@ -502,6 +537,7 @@ var supportedModelIDs = []string{
 	modelGPT53Codex,
 	modelGPT53CodexSpark,
 	modelGPT55,
+	modelGPT5Sol,
 	modelGPT5Codex,
 	modelGPT51,
 	modelGPT51Codex,

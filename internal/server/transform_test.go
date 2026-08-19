@@ -159,6 +159,8 @@ func TestNormalizeModel(t *testing.T) {
 		{"gpt-5.4 with effort suffix", "gpt-5.4-high", "gpt-5.4"},
 		{"gpt-5.5 base", "gpt-5.5", "gpt-5.5"},
 		{"gpt-5.5 with suffix", "gpt-5.5-xhigh", "gpt-5.5"},
+		{"gpt-5.6-sol base", "gpt-5.6-sol", "gpt-5.6-sol"},
+		{"gpt-5.6-sol with effort suffix", "gpt-5.6-sol-high", "gpt-5.6-sol"},
 		{"gpt-5.1 with suffix", "gpt-5.1-high", "gpt-5.1"},
 		{"gpt-5.1 codex", "gpt-5.1-codex", "gpt-5.1-codex"},
 		{"gpt-5.1 codex max", "gpt-5.1-codex-max", "gpt-5.1-codex-max"},
