@@ -67,6 +67,13 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("/health", s.healthHandler)
 	s.mux.HandleFunc("/admin/credentials", s.adminMiddleware(s.credentialsHandler))
 	s.mux.HandleFunc("/admin/credentials/status", s.adminMiddleware(s.credentialsStatusHandler))
+
+	// MCP endpoint. The handler is built once so the tool set is shared across
+	// requests; the session itself is stateless.
+	mcpHandler := s.adminMiddleware(s.mcpHandler())
+	s.mux.HandleFunc("/mcp", mcpHandler)
+	s.mux.HandleFunc("/mcp/", mcpHandler)
+
 	s.mux.HandleFunc("/", s.notFoundHandler)
 }
 

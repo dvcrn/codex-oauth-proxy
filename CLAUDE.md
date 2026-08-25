@@ -67,6 +67,7 @@ The codebase follows Go conventions with internal packages:
   - `/v1/chat/completions` and `/v1/responses` endpoints process incoming requests
   - `/v1/models` lists available models; `/health` for health checks (returns `{"status": "ok"}`)
   - `/admin/credentials` and `/admin/credentials/status` manage stored OAuth credentials
+  - `/mcp` exposes an MCP server (stateless streamable HTTP) with the `ask_codex` and `ask_codex_models` tools
   - Transforms the OpenAI-compatible request into the ChatGPT Codex Responses API format
   - Injects the Codex CLI system prompt / instructions
   - Rewrites the upstream SSE stream back into the client-facing format
