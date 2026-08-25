@@ -288,72 +288,60 @@ func resolveRequestModel(requestData map[string]interface{}) string {
 			return model
 		}
 	}
-	return modelGPT5
+	return modelDefault
 }
 
 func normalizeModel(model string) string {
 	lower := strings.ToLower(strings.TrimSpace(model))
-	for _, effort := range []string{"-xhigh", "-high", "-medium", "-low", "-minimal"} {
+	// Longest-first so "-xhigh" is not mistaken for "-high". Note this assumes
+	// no served model's name ends in one of these words.
+	for _, effort := range []string{"-minimal", "-medium", "-xhigh", "-high", "-low", "-max"} {
 		if strings.HasSuffix(lower, effort) {
 			lower = strings.TrimSuffix(lower, effort)
 			break
 		}
 	}
 	if lower == "" {
-		return modelGPT5
+		return modelDefault
 	}
 
-	// Prefer explicit new model IDs first to keep mapping predictable.
-	if lower == modelGPT5Sol {
+	// Exact matches on currently-served models first, so a valid ID is never
+	// rewritten by the looser prefix matching below.
+	switch lower {
+	case modelGPT5Sol, modelGPT5Terra, modelGPT5Luna, modelDaybreakBlue, modelGPT55, modelGPT54, modelGPT54Mini:
+		return lower
+	}
+
+	if strings.Contains(lower, "gpt-5.6-sol") {
 		return modelGPT5Sol
 	}
-	if lower == modelGPT55 {
+	if strings.Contains(lower, "gpt-5.6-terra") {
+		return modelGPT5Terra
+	}
+	if strings.Contains(lower, "gpt-5.6-luna") {
+		return modelGPT5Luna
+	}
+	if strings.Contains(lower, "daybreak") {
+		return modelDaybreakBlue
+	}
+	if strings.Contains(lower, "gpt-5.5") {
 		return modelGPT55
 	}
-	if strings.Contains(lower, "gpt-5.2-codex") {
-		return modelGPT52Codex
-	}
-	if strings.Contains(lower, "gpt-5.3-codex-spark") {
-		return modelGPT53CodexSpark
-	}
-	if strings.Contains(lower, "gpt-5.3-codex") {
-		return modelGPT53Codex
+	if strings.Contains(lower, "gpt-5.4-mini") {
+		return modelGPT54Mini
 	}
 	if strings.Contains(lower, "gpt-5.4") {
 		return modelGPT54
 	}
-	if strings.Contains(lower, "gpt-5.2") {
-		return modelGPT52
-	}
-	if strings.Contains(lower, "gpt-5.1-codex-max") {
-		return modelGPT51CodexMax
-	}
-	if strings.Contains(lower, "gpt-5.1-codex-mini") {
-		return modelGPT51CodexMini
-	}
-	if strings.Contains(lower, "gpt-5.1-codex") {
-		return modelGPT51Codex
-	}
-	if strings.Contains(lower, "gpt-5.1") {
-		return modelGPT51
-	}
 
-	if strings.Contains(lower, "gpt-5-codex-mini") {
-		return modelGPT5CodexMini
-	}
-	// Fallbacks for older/legacy mini family naming.
+	// Unrecognized models, including the retired GPT-5.0 to GPT-5.3 family,
+	// map onto the current default so older callers keep working instead of
+	// getting a hard 400 from the backend.
 	if strings.Contains(lower, "mini") {
-		return modelGPT51CodexMini
-	}
-	if strings.Contains(lower, "4o") {
-		return modelGPT51CodexMini
-	}
-	if strings.Contains(lower, "gpt-5-codex") || strings.Contains(lower, "codex") {
-		return modelGPT5Codex
+		return modelGPT54Mini
 	}
 
-	// Fallback: any other 5-series model collapses to gpt-5.
-	return modelGPT5
+	return modelDefault
 }
 
 func normalizeReasoningEffort(effort string) string {
@@ -368,6 +356,8 @@ func normalizeReasoningEffort(effort string) string {
 		return "high"
 	case "xhigh":
 		return "xhigh"
+	case "max":
+		return "max"
 	case "none":
 		return "low"
 	default:
@@ -393,7 +383,7 @@ func resolveReasoningEffort(requestData map[string]interface{}) string {
 
 	if model, ok := requestData["model"].(string); ok {
 		lowerModel := strings.ToLower(strings.TrimSpace(model))
-		for _, effort := range []string{"xhigh", "high", "medium", "low", "minimal"} {
+		for _, effort := range []string{"minimal", "medium", "xhigh", "high", "low", "max"} {
 			if strings.HasSuffix(lowerModel, "-"+effort) {
 				return effort
 			}
@@ -784,7 +774,7 @@ type SSETransformer struct {
 func NewSSETransformer(model string) *SSETransformer {
 	model = strings.TrimSpace(model)
 	if model == "" {
-		model = modelGPT5
+		model = modelDefault
 	}
 	return &SSETransformer{
 		model:             model,

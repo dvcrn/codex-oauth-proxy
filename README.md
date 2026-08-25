@@ -132,6 +132,37 @@ just test   # Run tests
 - `POST /v1/chat/completions` - OpenAI chat completions-compatible endpoint
 - `POST /v1/responses` - OpenAI Responses-compatible endpoint (Codex)
 - `GET /health` - Health check
+- `/mcp` - an MCP server exposing the models as tools (`ask_codex`, `ask_codex_models`)
+
+## MCP clients
+
+The proxy also speaks MCP over streamable HTTP at `/mcp`, so any MCP client can ask
+Codex models a question without going through the chat completions or responses
+endpoints. The session is stateless and authenticates with the same `ADMIN_API_KEY`
+as everything else, sent as a bearer token.
+
+```json
+{
+  "mcpServers": {
+    "ask-codex": {
+      "type": "http",
+      "url": "http://localhost:9879/mcp",
+      "headers": {
+        "Authorization": "Bearer xxxx"
+      }
+    }
+  }
+}
+```
+
+Two tools are exposed:
+
+- `ask_codex(model, prompt)` - ask a model a single self-contained question and get
+  the answer back as text. There is no conversation history, so the prompt needs to
+  carry all the context. Reasoning effort suffixes work here too, so `gpt-5.5-high`
+  is a valid model.
+- `ask_codex_models()` - list the model IDs that can be passed to `ask_codex`, with the
+  reasoning effort levels each one accepts.
 
 ## Models and Reasoning Mappings
 

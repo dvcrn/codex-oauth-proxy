@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dvcrn/codex-oauth-proxy/internal/credentials"
@@ -43,6 +44,11 @@ type Server struct {
 	mux               *http.ServeMux
 	logger            zerolog.Logger
 	disableHealthLogs bool
+
+	// Cached result of the upstream model listing, guarded by modelsCacheMu.
+	modelsCacheMu     sync.Mutex
+	modelsCache       []upstreamModel
+	modelsCacheExpiry time.Time
 }
 
 func New(logger zerolog.Logger, credsFetcher credentials.CredentialsFetcher) *Server {
@@ -67,6 +73,13 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("/health", s.healthHandler)
 	s.mux.HandleFunc("/admin/credentials", s.adminMiddleware(s.credentialsHandler))
 	s.mux.HandleFunc("/admin/credentials/status", s.adminMiddleware(s.credentialsStatusHandler))
+
+	// MCP endpoint. The handler is built once so the tool set is shared across
+	// requests; the session itself is stateless.
+	mcpHandler := s.adminMiddleware(s.mcpHandler())
+	s.mux.HandleFunc("/mcp", mcpHandler)
+	s.mux.HandleFunc("/mcp/", mcpHandler)
+
 	s.mux.HandleFunc("/", s.notFoundHandler)
 }
 
@@ -114,11 +127,18 @@ func (s *Server) modelsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	upstream, err := s.fetchUpstreamModels(r.Context())
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Failed to list upstream models")
+		http.Error(w, "Failed to list models: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	response := modelsResponse{
 		Object: "list",
-		Data:   supportedModels(),
+		Data:   modelsFromUpstream(upstream),
 	}
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		s.logger.Error().Err(err).Msg("Failed to encode models response")
@@ -461,14 +481,14 @@ func (s *Server) makeChatGPTRequest(r *http.Request, url string, body []byte, to
 
 	// Set headers for ChatGPT backend
 	proxyReq.Header.Set("authorization", "Bearer "+bareToken)
-	proxyReq.Header.Set("version", "0.144.6")
+	proxyReq.Header.Set("version", codexClientVersion)
 	proxyReq.Header.Set("openai-beta", "responses=experimental")
 	proxyReq.Header.Set("session_id", newUUIDv4())
 	proxyReq.Header.Set("accept", "text/event-stream")
 	proxyReq.Header.Set("content-type", "application/json")
 	proxyReq.Header.Set("chatgpt-account-id", accountID)
 	proxyReq.Header.Set("originator", "codex_cli_rs")
-	proxyReq.Header.Set("user-agent", "codex_cli_rs/0.144.6 (Mac OS 26.3.0; arm64) Apple_Terminal/466")
+	proxyReq.Header.Set("user-agent", "codex_cli_rs/"+codexClientVersion+" (Mac OS 26.3.0; arm64) Apple_Terminal/466")
 	proxyReq.Header.Set("x-codex-beta-features", "multi_agent,apps,prevent_idle_sleep")
 	// The CLI uses turn_id, so let's mock one
 	proxyReq.Header.Set("x-codex-turn-metadata", `{"turn_id":"`+newUUIDv4()+`","sandbox":"none"}`)
