@@ -200,17 +200,20 @@ func (s *Server) mcpAskCodex(ctx context.Context, in askCodexInput) (askCodexOut
 	}, nil
 }
 
-func (s *Server) mcpAskCodexModels(_ context.Context, _ askCodexModelsInput) (askCodexModelsOutput, error) {
-	models := make([]askCodexModel, 0, len(supportedModelIDs))
-	for _, id := range supportedModelIDs {
-		entry := askCodexModel{ID: id}
-		if metadata, ok := modelMetadataByID[id]; ok {
-			entry.DisplayName = metadata.Name
-		}
-		if efforts, ok := modelAllowedEfforts[id]; ok {
-			entry.ReasoningEfforts = append([]string(nil), efforts...)
-		}
-		models = append(models, entry)
+func (s *Server) mcpAskCodexModels(ctx context.Context, _ askCodexModelsInput) (askCodexModelsOutput, error) {
+	upstream, err := s.fetchUpstreamModels(ctx)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("MCP ask_codex_models failed to list upstream models")
+		return askCodexModelsOutput{}, err
+	}
+
+	models := make([]askCodexModel, 0, len(upstream))
+	for _, model := range upstream {
+		models = append(models, askCodexModel{
+			ID:               model.Slug,
+			DisplayName:      model.DisplayName,
+			ReasoningEfforts: model.efforts(),
+		})
 	}
 
 	sort.Slice(models, func(i, j int) bool {

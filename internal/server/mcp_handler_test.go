@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -22,6 +23,43 @@ func (stubCredentialsFetcher) GetCredentials() (string, string, error) {
 	return "test-token", "test-account", nil
 }
 func (stubCredentialsFetcher) RefreshCredentials() error { return nil }
+
+// stubModelsHTTPClient serves a canned /backend-api/codex/models payload so the
+// model-listing tests do not depend on the network or a live account.
+type stubModelsHTTPClient struct {
+	body       string
+	statusCode int
+	err        error
+	calls      int
+}
+
+func (c *stubModelsHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	c.calls++
+	if c.err != nil {
+		return nil, c.err
+	}
+	status := c.statusCode
+	if status == 0 {
+		status = http.StatusOK
+	}
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader(c.body)),
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
+}
+
+// upstreamModelsFixture mirrors the shape the ChatGPT backend returns, including
+// a hidden model that must be filtered out of the advertised list.
+const upstreamModelsFixture = `{"models":[
+  {"slug":"gpt-5.5","display_name":"GPT-5.5","visibility":"list",
+   "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"}]},
+  {"slug":"gpt-5.4","display_name":"GPT-5.4","visibility":"list",
+   "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]},
+  {"slug":"codex-auto-review","display_name":"Codex Auto Review","visibility":"hide",
+   "supported_reasoning_levels":[{"effort":"low"}]}
+]}`
 
 const testAdminKey = "test-admin-key"
 
@@ -143,7 +181,7 @@ func TestMCPAskCodexRejectsBlankInput(t *testing.T) {
 	}{
 		{
 			name:        "blank prompt",
-			args:        map[string]interface{}{"model": modelGPT52Codex, "prompt": "   "},
+			args:        map[string]interface{}{"model": modelGPT55, "prompt": "   "},
 			wantMessage: "prompt is required",
 		},
 		{
@@ -175,10 +213,14 @@ func TestMCPAskCodexRejectsBlankInput(t *testing.T) {
 
 func TestMCPAskCodexModels(t *testing.T) {
 	srv := newMCPTestServer(t)
+	stub := &stubModelsHTTPClient{body: upstreamModelsFixture}
+	srv.httpClient = stub
 
 	out, err := srv.mcpAskCodexModels(t.Context(), askCodexModelsInput{})
 	require.NoError(t, err)
-	require.Len(t, out.Models, len(supportedModelIDs))
+
+	// Only the user-visible models are advertised; codex-auto-review is hidden.
+	require.Len(t, out.Models, 2)
 
 	byID := make(map[string]askCodexModel, len(out.Models))
 	var previousID string
@@ -188,10 +230,32 @@ func TestMCPAskCodexModels(t *testing.T) {
 		byID[model.ID] = model
 	}
 
-	codexMax, ok := byID[modelGPT51CodexMax]
+	_, hidden := byID["codex-auto-review"]
+	assert.False(t, hidden, "hidden models must not be advertised")
+
+	gpt55, ok := byID["gpt-5.5"]
 	require.True(t, ok)
-	assert.Equal(t, modelMetadataByID[modelGPT51CodexMax].Name, codexMax.DisplayName)
-	assert.Equal(t, modelAllowedEfforts[modelGPT51CodexMax], codexMax.ReasoningEfforts)
+	assert.Equal(t, "GPT-5.5", gpt55.DisplayName)
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh"}, gpt55.ReasoningEfforts)
+
+	// A second call is served from cache rather than re-querying upstream.
+	_, err = srv.mcpAskCodexModels(t.Context(), askCodexModelsInput{})
+	require.NoError(t, err)
+	assert.Equal(t, 1, stub.calls, "expected the model list to be cached")
+}
+
+func TestMCPAskCodexModelsUpstreamFailure(t *testing.T) {
+	srv := newMCPTestServer(t)
+	srv.httpClient = &stubModelsHTTPClient{
+		statusCode: http.StatusUnauthorized,
+		body:       `{"detail":"Could not parse your authentication token."}`,
+	}
+
+	// The static table is deliberately not used as a fallback: advertising
+	// models the account cannot call is worse than reporting the failure.
+	_, err := srv.mcpAskCodexModels(t.Context(), askCodexModelsInput{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "upstream returned 401")
 }
 
 func mcpResultText(t *testing.T, result map[string]interface{}) string {

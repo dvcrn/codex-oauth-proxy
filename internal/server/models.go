@@ -1,5 +1,12 @@
 package server
 
+// codexClientVersion is the Codex CLI version this proxy identifies as when
+// talking to the ChatGPT backend. It is sent as the "version" header on
+// upstream requests and as the client_version query parameter when listing
+// models; the backend gates both model availability and protocol features on
+// it, so the two must stay in sync.
+const codexClientVersion = "0.144.6"
+
 const (
 	modelGPT5            = "gpt-5"
 	modelGPT5Codex       = "gpt-5-codex"
@@ -566,6 +573,44 @@ func supportedModels() []modelMetadata {
 				variant.Name = base.Name + " (" + effort + " reasoning)"
 				models = append(models, variant)
 			}
+		}
+	}
+	return models
+}
+
+// modelsFromUpstream converts the live entitlement listing into the
+// OpenAI-compatible metadata /v1/models serves. Slugs already known to the
+// built-in table reuse its richer capability metadata; models the table has
+// never seen (newly launched ones) still get listed with sensible defaults so
+// the endpoint reflects what the account can actually call.
+func modelsFromUpstream(upstream []upstreamModel) []modelMetadata {
+	models := make([]modelMetadata, 0, len(upstream))
+	for _, model := range upstream {
+		base, ok := modelMetadataByID[model.Slug]
+		if !ok {
+			base = modelMetadata{
+				ID:                 model.Slug,
+				Object:             "model",
+				Vendor:             "openai",
+				Version:            model.Slug,
+				ModelPickerEnabled: true,
+			}
+		}
+		if model.DisplayName != "" {
+			base.Name = model.DisplayName
+		}
+		if base.Name == "" {
+			base.Name = model.Slug
+		}
+		base.ID = model.Slug
+
+		models = append(models, base)
+
+		for _, effort := range model.efforts() {
+			variant := base
+			variant.ID = model.Slug + "-" + effort
+			variant.Name = base.Name + " (" + effort + " reasoning)"
+			models = append(models, variant)
 		}
 	}
 	return models
