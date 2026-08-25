@@ -22,10 +22,11 @@ func TestTransformResponsesRequestBody(t *testing.T) {
 		"reasoning_effort": "none",
 	}
 
+	// gpt-5-codex was retired upstream, so it normalizes onto the default model.
 	normalizedModel, normalizedEffort := transformResponsesRequestBody(body, "gpt-5-codex-preview", "none")
 
-	if normalizedModel != "gpt-5-codex" {
-		t.Fatalf("expected normalized model gpt-5-codex, got %q", normalizedModel)
+	if normalizedModel != modelDefault {
+		t.Fatalf("expected normalized model %s, got %q", modelDefault, normalizedModel)
 	}
 	if normalizedEffort != "low" {
 		t.Fatalf("expected normalized effort low, got %q", normalizedEffort)
@@ -125,26 +126,27 @@ func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T)
 		}
 	}
 
-	// Case 1: explicit low effort gets clamped to medium
+	// Case 1: an effort the model does not support falls back to its default.
+	// gpt-5.6-sol has no "minimal" level and defaults to "low".
 	body1 := baseBody()
-	requestedEffort1 := "low"
-	nModel1, nEffort1 := transformResponsesRequestBody(body1, "gpt-5.1-codex-mini", requestedEffort1)
-	if nModel1 != "gpt-5.1-codex-mini" {
-		t.Fatalf("expected normalized model gpt-5.1-codex-mini, got %q", nModel1)
+	requestedEffort1 := "minimal"
+	nModel1, nEffort1 := transformResponsesRequestBody(body1, modelGPT5Sol, requestedEffort1)
+	if nModel1 != modelGPT5Sol {
+		t.Fatalf("expected normalized model %s, got %q", modelGPT5Sol, nModel1)
 	}
-	if nEffort1 != "medium" {
-		t.Fatalf("expected normalized effort medium, got %q", nEffort1)
+	if nEffort1 != "low" {
+		t.Fatalf("expected normalized effort low, got %q", nEffort1)
 	}
 	reasoning1, ok := body1["reasoning"].(map[string]interface{})
-	if !ok || reasoning1["effort"] != "medium" {
+	if !ok || reasoning1["effort"] != "low" {
 		t.Fatalf("expected reasoning effort medium in body, got %v", body1["reasoning"])
 	}
 
 	// Case 2: no effort provided defaults to model-specific default (medium)
 	body2 := baseBody()
-	nModel2, nEffort2 := transformResponsesRequestBody(body2, "gpt-5.1-codex-mini", "")
-	if nModel2 != "gpt-5.1-codex-mini" {
-		t.Fatalf("expected normalized model gpt-5.1-codex-mini, got %q", nModel2)
+	nModel2, nEffort2 := transformResponsesRequestBody(body2, modelGPT54Mini, "")
+	if nModel2 != modelGPT54Mini {
+		t.Fatalf("expected normalized model %s, got %q", modelGPT54Mini, nModel2)
 	}
 	if nEffort2 != "medium" {
 		t.Fatalf("expected normalized effort medium, got %q", nEffort2)
@@ -154,12 +156,12 @@ func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T)
 		t.Fatalf("expected reasoning effort medium in body, got %v", body2["reasoning"])
 	}
 
-	// Case 3: gpt-5.1-codex-max preserves xhigh and defaults to low when unspecified
+	// Case 3: gpt-5.6-sol preserves xhigh and defaults to low when unspecified
 	body3 := baseBody()
 	requestedEffort3 := "xhigh"
-	nModel3, nEffort3 := transformResponsesRequestBody(body3, "gpt-5.1-codex-max", requestedEffort3)
-	if nModel3 != "gpt-5.1-codex-max" {
-		t.Fatalf("expected normalized model gpt-5.1-codex-max, got %q", nModel3)
+	nModel3, nEffort3 := transformResponsesRequestBody(body3, modelGPT5Sol, requestedEffort3)
+	if nModel3 != modelGPT5Sol {
+		t.Fatalf("expected normalized model %s, got %q", modelGPT5Sol, nModel3)
 	}
 	if nEffort3 != "xhigh" {
 		t.Fatalf("expected normalized effort xhigh, got %q", nEffort3)
@@ -170,9 +172,9 @@ func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T)
 	}
 
 	body4 := baseBody()
-	nModel4, nEffort4 := transformResponsesRequestBody(body4, "gpt-5.1-codex-max", "")
-	if nModel4 != "gpt-5.1-codex-max" {
-		t.Fatalf("expected normalized model gpt-5.1-codex-max, got %q", nModel4)
+	nModel4, nEffort4 := transformResponsesRequestBody(body4, modelGPT5Sol, "")
+	if nModel4 != modelGPT5Sol {
+		t.Fatalf("expected normalized model %s, got %q", modelGPT5Sol, nModel4)
 	}
 	if nEffort4 != "low" {
 		t.Fatalf("expected normalized effort low when unspecified, got %q", nEffort4)
