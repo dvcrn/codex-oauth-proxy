@@ -63,9 +63,10 @@ func (s *Server) newMCPServer() *mcpsdk.Server {
 			"conversation history, so put everything the model needs into the prompt. Call ask_codex_models " +
 			"first if you are unsure which model IDs are available.",
 		InputSchema: mcpObjectSchema(map[string]any{
-			"model": mcpStringSchema("Model ID to ask, e.g. gpt-5.2-codex. Append a reasoning effort " +
-				"suffix (e.g. gpt-5.2-codex-high) to override the model's default effort. " +
-				"Use ask_codex_models to list the IDs the ChatGPT Codex CLI backend currently offers."),
+			"model": mcpStringSchema("Model ID to ask, e.g. gpt-5.5. Append a reasoning effort " +
+				"suffix (e.g. gpt-5.5-high) to override the model's default effort. " +
+				"Use ask_codex_models to list the IDs the ChatGPT Codex CLI backend currently offers, " +
+				"along with the efforts each one accepts."),
 			"prompt": mcpStringSchema("The full question or instruction to send to the model."),
 		}, "model", "prompt"),
 	}, s.mcpAskCodex)

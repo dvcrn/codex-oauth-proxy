@@ -159,7 +159,7 @@ Two tools are exposed:
 
 - `ask_codex(model, prompt)` - ask a model a single self-contained question and get
   the answer back as text. There is no conversation history, so the prompt needs to
-  carry all the context. Reasoning effort suffixes work here too, so `gpt-5.2-codex-high`
+  carry all the context. Reasoning effort suffixes work here too, so `gpt-5.5-high`
   is a valid model.
 - `ask_codex_models()` - list the model IDs that can be passed to `ask_codex`, with the
   reasoning effort levels each one accepts.
