@@ -8,9 +8,8 @@ func TestUpstreamTransportForModel_DefaultsToHTTP(t *testing.T) {
 	}
 }
 
-// The WebSocket transport is opt-in per model. gpt-5.3-codex-spark, previously
-// the only model routed this way, has been retired upstream, so the set is
-// currently empty; this guards the routing logic itself.
+// The preferred-model set is empty by default, so this registers one to guard
+// the routing logic itself.
 func TestUpstreamTransportForModel_PreferredModelUsesWebSocket(t *testing.T) {
 	if !supportsWebSocketUpstream() {
 		t.Skip("websocket upstream is not available in this build")

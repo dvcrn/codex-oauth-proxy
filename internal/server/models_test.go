@@ -28,8 +28,7 @@ func TestModelsFromUpstreamIncludesBaseAndSuffixVariants(t *testing.T) {
 		seen[m.ID] = true
 	}
 
-	// "ultra" is advertised upstream but rejected by the Responses API, so it
-	// must not appear as a suffix variant.
+	// "ultra" is rejected by the Responses API, so it must not be advertised.
 	if seen["gpt-5.6-sol-ultra"] {
 		t.Fatal("ultra must be filtered out of the advertised efforts")
 	}

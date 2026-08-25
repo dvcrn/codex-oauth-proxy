@@ -139,7 +139,6 @@ func TestNormalizeModel(t *testing.T) {
 		input    string
 		expected string
 	}{
-		// Currently-served models normalize to themselves.
 		{"gpt-5.4 base", "gpt-5.4", "gpt-5.4"},
 		{"gpt-5.4 with effort suffix", "gpt-5.4-high", "gpt-5.4"},
 		{"gpt-5.4-mini base", "gpt-5.4-mini", "gpt-5.4-mini"},
@@ -154,8 +153,7 @@ func TestNormalizeModel(t *testing.T) {
 		{"daybreak blue", "gpt-daybreak-blue-latest", "gpt-daybreak-blue-latest"},
 		{"uppercase is normalized", "GPT-5.5", "gpt-5.5"},
 
-		// The GPT-5.0 to GPT-5.3 generation was retired upstream; those IDs now
-		// collapse onto the current default rather than failing at call time.
+		// Retired model IDs collapse onto the current default.
 		{"retired gpt-5", "gpt-5", modelDefault},
 		{"retired gpt-5-codex", "gpt-5-codex", modelDefault},
 		{"retired gpt-5.1", "gpt-5.1", modelDefault},
@@ -168,7 +166,6 @@ func TestNormalizeModel(t *testing.T) {
 		{"unknown model", "some-other-model", modelDefault},
 		{"empty", "", modelDefault},
 
-		// Retired "mini" variants map onto the current mini model.
 		{"retired gpt-5-codex-mini", "gpt-5-codex-mini", "gpt-5.4-mini"},
 		{"retired gpt-5.1-codex-mini", "gpt-5.1-codex-mini", "gpt-5.4-mini"},
 		{"gpt-4o mini", "gpt-4o-mini", "gpt-5.4-mini"},

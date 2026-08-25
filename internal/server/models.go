@@ -178,10 +178,9 @@ var modelMetadataByID = map[string]modelMetadata{
 }
 
 // modelsFromUpstream converts the live entitlement listing into the
-// OpenAI-compatible metadata /v1/models serves. Slugs already known to the
-// built-in table reuse its richer capability metadata; models the table has
-// never seen (newly launched ones) still get listed with sensible defaults so
-// the endpoint reflects what the account can actually call.
+// OpenAI-compatible metadata /v1/models serves. Known slugs reuse the built-in
+// table's richer capability metadata; unrecognized ones (newly launched
+// models) are still listed, with defaults.
 func modelsFromUpstream(upstream []upstreamModel) []modelMetadata {
 	models := make([]modelMetadata, 0, len(upstream))
 	for _, model := range upstream {

@@ -219,7 +219,6 @@ func TestMCPAskCodexModels(t *testing.T) {
 	out, err := srv.mcpAskCodexModels(t.Context(), askCodexModelsInput{})
 	require.NoError(t, err)
 
-	// Only the user-visible models are advertised; codex-auto-review is hidden.
 	require.Len(t, out.Models, 2)
 
 	byID := make(map[string]askCodexModel, len(out.Models))
@@ -238,7 +237,6 @@ func TestMCPAskCodexModels(t *testing.T) {
 	assert.Equal(t, "GPT-5.5", gpt55.DisplayName)
 	assert.Equal(t, []string{"low", "medium", "high", "xhigh"}, gpt55.ReasoningEfforts)
 
-	// A second call is served from cache rather than re-querying upstream.
 	_, err = srv.mcpAskCodexModels(t.Context(), askCodexModelsInput{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, stub.calls, "expected the model list to be cached")
@@ -251,8 +249,6 @@ func TestMCPAskCodexModelsUpstreamFailure(t *testing.T) {
 		body:       `{"detail":"Could not parse your authentication token."}`,
 	}
 
-	// The static table is deliberately not used as a fallback: advertising
-	// models the account cannot call is worse than reporting the failure.
 	_, err := srv.mcpAskCodexModels(t.Context(), askCodexModelsInput{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "upstream returned 401")

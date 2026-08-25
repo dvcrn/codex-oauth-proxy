@@ -127,9 +127,6 @@ func (s *Server) modelsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Report what this account is actually entitled to. Falling back to the
-	// built-in table here would advertise retired model IDs that fail at call
-	// time, so a listing failure is surfaced instead.
 	upstream, err := s.fetchUpstreamModels(r.Context())
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to list upstream models")

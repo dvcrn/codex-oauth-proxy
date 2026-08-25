@@ -15,14 +15,11 @@ import (
 // same account sees a different set depending on which CLI version is claimed.
 const upstreamModelsURL = "https://chatgpt.com/backend-api/codex/models"
 
-// upstreamModelsTTL is how long a successful listing is reused. The entitled
-// set changes rarely (plan changes, model launches), so a short cache keeps
-// tool calls responsive without serving a stale list for long.
+// upstreamModelsTTL is how long a successful listing is reused.
 const upstreamModelsTTL = 5 * time.Minute
 
 // upstreamModel is the subset of the backend's model description this proxy
-// uses. The full payload carries a lot of CLI-specific execution settings that
-// are irrelevant to a proxy.
+// uses; the full payload is mostly CLI-specific execution settings.
 type upstreamModel struct {
 	Slug        string `json:"slug"`
 	DisplayName string `json:"display_name"`
@@ -66,9 +63,9 @@ type upstreamModelsResponse struct {
 // account can use, returning only the user-visible ones. Results are cached
 // for upstreamModelsTTL.
 //
-// Errors are returned rather than being papered over with the built-in model
-// table: the static list drifts out of date as models are retired, so serving
-// it here would advertise model IDs that fail at call time.
+// A failure is returned rather than falling back to the built-in model table,
+// which drifts out of date as models are retired and would advertise IDs that
+// fail at call time.
 func (s *Server) fetchUpstreamModels(ctx context.Context) ([]upstreamModel, error) {
 	s.modelsCacheMu.Lock()
 	defer s.modelsCacheMu.Unlock()

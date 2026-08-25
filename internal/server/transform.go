@@ -293,9 +293,8 @@ func resolveRequestModel(requestData map[string]interface{}) string {
 
 func normalizeModel(model string) string {
 	lower := strings.ToLower(strings.TrimSpace(model))
-	// Longest-first so "-xhigh" is not mistaken for "-high". "-max" is safe to
-	// treat as an effort suffix now that gpt-5.1-codex-max (a model whose name
-	// ended in -max) has been retired upstream.
+	// Longest-first so "-xhigh" is not mistaken for "-high". Note this assumes
+	// no served model's name ends in one of these words.
 	for _, effort := range []string{"-minimal", "-medium", "-xhigh", "-high", "-low", "-max"} {
 		if strings.HasSuffix(lower, effort) {
 			lower = strings.TrimSuffix(lower, effort)
@@ -335,10 +334,8 @@ func normalizeModel(model string) string {
 		return modelGPT54
 	}
 
-	// The GPT-5.0 through GPT-5.3 generation (including the -codex variants)
-	// was retired upstream: the backend rejects those IDs for every client
-	// version. Map anything in that family, and any other unrecognized model,
-	// onto the current default so older callers keep working instead of
+	// Unrecognized models, including the retired GPT-5.0 to GPT-5.3 family,
+	// map onto the current default so older callers keep working instead of
 	// getting a hard 400 from the backend.
 	if strings.Contains(lower, "mini") {
 		return modelGPT54Mini

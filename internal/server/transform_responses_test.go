@@ -22,7 +22,6 @@ func TestTransformResponsesRequestBody(t *testing.T) {
 		"reasoning_effort": "none",
 	}
 
-	// gpt-5-codex was retired upstream, so it normalizes onto the default model.
 	normalizedModel, normalizedEffort := transformResponsesRequestBody(body, "gpt-5-codex-preview", "none")
 
 	if normalizedModel != modelDefault {
@@ -127,7 +126,6 @@ func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T)
 	}
 
 	// Case 1: an effort the model does not support falls back to its default.
-	// gpt-5.6-sol has no "minimal" level and defaults to "low".
 	body1 := baseBody()
 	requestedEffort1 := "minimal"
 	nModel1, nEffort1 := transformResponsesRequestBody(body1, modelGPT5Sol, requestedEffort1)
