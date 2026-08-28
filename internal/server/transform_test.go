@@ -202,6 +202,60 @@ func TestNormalizeReasoningEffort(t *testing.T) {
 	}
 }
 
+func TestBuildCodexInputMessagesPreservesImageURLs(t *testing.T) {
+	dataURL := "data:image/png;base64,AQID"
+	request := map[string]interface{}{
+		"messages": []interface{}{
+			map[string]interface{}{
+				"role": "user",
+				"content": []interface{}{
+					map[string]interface{}{"type": "text", "text": "describe this"},
+					map[string]interface{}{
+						"type": "image_url",
+						"image_url": map[string]interface{}{
+							"url":    dataURL,
+							"detail": "high",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	input := buildCodexInputMessages(request)
+	require.Len(t, input, 2)
+	userMessage, ok := input[1].(map[string]interface{})
+	require.True(t, ok)
+	contents, ok := userMessage["content"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, contents, 2)
+	assert.Equal(t, map[string]interface{}{
+		"type": "input_text",
+		"text": "describe this",
+	}, contents[0])
+	assert.Equal(t, map[string]interface{}{
+		"type":      "input_image",
+		"image_url": dataURL,
+		"detail":    "high",
+	}, contents[1])
+}
+
+func TestCollectUserContentPreservesHTTPImageURL(t *testing.T) {
+	contents := collectUserContent([]interface{}{
+		map[string]interface{}{
+			"type": "image_url",
+			"image_url": map[string]interface{}{
+				"url": "https://example.com/image.png",
+			},
+		},
+	})
+
+	assert.Equal(t, []interface{}{map[string]interface{}{
+		"type":      "input_image",
+		"image_url": "https://example.com/image.png",
+	}}, contents)
+}
+
 func TestClampReasoningEffortForModel(t *testing.T) {
 	tests := []struct {
 		name        string

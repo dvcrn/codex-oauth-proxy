@@ -580,16 +580,9 @@ func buildCodexInputMessages(requestData map[string]interface{}) []interface{} {
 
 		switch role {
 		case "user":
-			texts := collectTextSegments(mm["content"], true)
-			if len(texts) == 0 {
+			contents := collectUserContent(mm["content"])
+			if len(contents) == 0 {
 				continue
-			}
-			contents := make([]interface{}, 0, len(texts))
-			for _, t := range texts {
-				contents = append(contents, map[string]interface{}{
-					"type": "input_text",
-					"text": t,
-				})
 			}
 			input = append(input, map[string]interface{}{
 				"type":    "message",
@@ -646,6 +639,59 @@ func buildCodexInputMessages(requestData map[string]interface{}) []interface{} {
 		}
 	}
 	return input
+}
+
+func collectUserContent(content interface{}) []interface{} {
+	switch value := content.(type) {
+	case string:
+		text := strings.TrimSpace(value)
+		if text == "" {
+			return nil
+		}
+		return []interface{}{map[string]interface{}{
+			"type": "input_text",
+			"text": replaceNames(text),
+		}}
+	case []interface{}:
+		contents := make([]interface{}, 0, len(value))
+		for _, item := range value {
+			part, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			switch partType, _ := part["type"].(string); partType {
+			case "text", "input_text":
+				text, _ := part["text"].(string)
+				if text != "" {
+					contents = append(contents, map[string]interface{}{
+						"type": "input_text",
+						"text": replaceNames(text),
+					})
+				}
+			case "image_url":
+				image, _ := part["image_url"].(map[string]interface{})
+				url, _ := image["url"].(string)
+				if url == "" {
+					continue
+				}
+				inputImage := map[string]interface{}{
+					"type":      "input_image",
+					"image_url": url,
+				}
+				if detail, _ := image["detail"].(string); detail != "" {
+					inputImage["detail"] = detail
+				}
+				contents = append(contents, inputImage)
+			case "input_image":
+				if url, _ := part["image_url"].(string); url != "" {
+					contents = append(contents, part)
+				}
+			}
+		}
+		return contents
+	default:
+		return nil
+	}
 }
 
 func collectTextSegments(content interface{}, applyReplace bool) []string {
