@@ -126,6 +126,7 @@ func sanitizeResponsesInput(body map[string]interface{}) {
 		if role, _ := msgMap["role"].(string); role == "system" {
 			continue
 		}
+		delete(msgMap, "id")
 		contents, ok := msgMap["content"].([]interface{})
 		if !ok {
 			filtered = append(filtered, msg)

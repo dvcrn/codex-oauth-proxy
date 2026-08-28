@@ -182,3 +182,57 @@ func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T)
 		t.Fatalf("expected reasoning effort low in body, got %v", body4["reasoning"])
 	}
 }
+
+func TestTransformResponsesRequestBody_StripsForeignInputItemIDs(t *testing.T) {
+	longForeignID := strings.Repeat("grok-session-item-", 5)
+	body := map[string]interface{}{
+		"input": []interface{}{
+			map[string]interface{}{
+				"type": "message",
+				"id":   longForeignID,
+				"role": "user",
+				"content": []interface{}{
+					map[string]interface{}{
+						"type": "input_text",
+						"text": "Continue this session",
+					},
+				},
+			},
+			map[string]interface{}{
+				"type":      "function_call",
+				"id":        longForeignID,
+				"call_id":   "call_keep_this",
+				"name":      "lookup",
+				"arguments": "{}",
+			},
+			map[string]interface{}{
+				"type":    "function_call_output",
+				"id":      longForeignID,
+				"call_id": "call_keep_this",
+				"output":  "done",
+			},
+		},
+	}
+
+	transformResponsesRequestBody(body, modelGPT55, "medium")
+
+	input := body["input"].([]interface{})
+	for idx, rawItem := range input {
+		item, ok := rawItem.(map[string]interface{})
+		if !ok {
+			t.Fatalf("input[%d] should be a map, got %T", idx, rawItem)
+		}
+		if _, exists := item["id"]; exists {
+			t.Fatalf("input[%d] should not preserve foreign id %q", idx, item["id"])
+		}
+	}
+
+	functionCall := input[1].(map[string]interface{})
+	if functionCall["call_id"] != "call_keep_this" {
+		t.Fatalf("expected function call_id to be preserved, got %v", functionCall["call_id"])
+	}
+	functionOutput := input[2].(map[string]interface{})
+	if functionOutput["call_id"] != "call_keep_this" {
+		t.Fatalf("expected function output call_id to be preserved, got %v", functionOutput["call_id"])
+	}
+}
