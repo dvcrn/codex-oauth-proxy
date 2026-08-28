@@ -149,30 +149,3 @@ func sanitizeResponsesInput(body map[string]interface{}) {
 	}
 	body["input"] = filtered
 }
-
-func removeEncryptedReasoningInput(body map[string]interface{}) int {
-	input, ok := body["input"].([]interface{})
-	if !ok {
-		return 0
-	}
-
-	removed := 0
-	filtered := input[:0:0]
-	for _, item := range input {
-		itemMap, ok := item.(map[string]interface{})
-		if !ok {
-			filtered = append(filtered, item)
-			continue
-		}
-		itemType, _ := itemMap["type"].(string)
-		_, hasEncryptedContent := itemMap["encrypted_content"]
-		if itemType == "reasoning" && hasEncryptedContent {
-			removed++
-			continue
-		}
-		filtered = append(filtered, item)
-	}
-	body["input"] = filtered
-
-	return removed
-}

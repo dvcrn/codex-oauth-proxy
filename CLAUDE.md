@@ -83,8 +83,8 @@ The proxy provides two primary modes of operation via distinct endpoints:
 
 ### Cross-Provider Session Resumption
 
-- Preserve encrypted reasoning items on the first upstream request so native ChatGPT reasoning continuity is not lost.
-- If upstream returns `invalid_encrypted_content`, retry once without encrypted reasoning items while preserving conversation and tool history.
+- Preserve encrypted reasoning items so native ChatGPT reasoning continuity is not lost.
+- Treat provider-specific encrypted reasoning as non-portable and pass upstream compatibility errors through to the client.
 - Preserve response item IDs up to the upstream 64-character limit; remove longer foreign IDs before forwarding.
 
 ### Environment Requirements
