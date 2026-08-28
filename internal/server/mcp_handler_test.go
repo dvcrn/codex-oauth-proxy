@@ -24,27 +24,50 @@ func (stubCredentialsFetcher) GetCredentials() (string, string, error) {
 }
 func (stubCredentialsFetcher) RefreshCredentials() error { return nil }
 
+type refreshingCredentialsFetcher struct {
+	refreshes int
+}
+
+func (f *refreshingCredentialsFetcher) GetCredentials() (string, string, error) {
+	return "test-token", "test-account", nil
+}
+
+func (f *refreshingCredentialsFetcher) RefreshCredentials() error {
+	f.refreshes++
+	return nil
+}
+
 // stubModelsHTTPClient serves a canned /backend-api/codex/models payload so the
 // model-listing tests do not depend on the network or a live account.
 type stubModelsHTTPClient struct {
-	body       string
-	statusCode int
-	err        error
-	calls      int
+	body        string
+	bodies      []string
+	statusCode  int
+	statusCodes []int
+	err         error
+	calls       int
 }
 
 func (c *stubModelsHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	callIndex := c.calls
 	c.calls++
 	if c.err != nil {
 		return nil, c.err
 	}
 	status := c.statusCode
+	if callIndex < len(c.statusCodes) {
+		status = c.statusCodes[callIndex]
+	}
 	if status == 0 {
 		status = http.StatusOK
 	}
+	body := c.body
+	if callIndex < len(c.bodies) {
+		body = c.bodies[callIndex]
+	}
 	return &http.Response{
 		StatusCode: status,
-		Body:       io.NopCloser(strings.NewReader(c.body)),
+		Body:       io.NopCloser(strings.NewReader(body)),
 		Header:     make(http.Header),
 		Request:    req,
 	}, nil
@@ -251,7 +274,28 @@ func TestMCPAskCodexModelsUpstreamFailure(t *testing.T) {
 
 	_, err := srv.mcpAskCodexModels(t.Context(), askCodexModelsInput{})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "upstream returned 401")
+	assert.Contains(t, err.Error(), "upstream authentication failed")
+}
+
+func TestMCPAskCodexModelsRefreshesAndRetriesOnUnauthorized(t *testing.T) {
+	srv := newMCPTestServer(t)
+	creds := &refreshingCredentialsFetcher{}
+	stub := &stubModelsHTTPClient{
+		statusCodes: []int{http.StatusUnauthorized, http.StatusOK},
+		bodies: []string{
+			`{"detail":"Could not parse your authentication token."}`,
+			upstreamModelsFixture,
+		},
+	}
+	srv.credsFetcher = creds
+	srv.httpClient = stub
+
+	out, err := srv.mcpAskCodexModels(t.Context(), askCodexModelsInput{})
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, creds.refreshes)
+	assert.Equal(t, 2, stub.calls)
+	require.Len(t, out.Models, 2)
 }
 
 func mcpResultText(t *testing.T, result map[string]interface{}) string {

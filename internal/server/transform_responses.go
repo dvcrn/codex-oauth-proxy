@@ -2,6 +2,8 @@ package server
 
 import "strings"
 
+const maxResponsesInputItemIDLength = 64
+
 func transformResponsesRequestBody(body map[string]interface{}, requestedModel string, requestedEffort string) (string, string) {
 	normalizedModel := normalizeModel(requestedModel)
 	body["model"] = normalizedModel
@@ -125,6 +127,9 @@ func sanitizeResponsesInput(body map[string]interface{}) {
 		}
 		if role, _ := msgMap["role"].(string); role == "system" {
 			continue
+		}
+		if id, ok := msgMap["id"].(string); ok && len(id) > maxResponsesInputItemIDLength {
+			delete(msgMap, "id")
 		}
 		contents, ok := msgMap["content"].([]interface{})
 		if !ok {

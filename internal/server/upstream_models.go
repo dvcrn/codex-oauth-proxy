@@ -59,6 +59,26 @@ type upstreamModelsResponse struct {
 	Models []upstreamModel `json:"models"`
 }
 
+type upstreamAuthError struct {
+	statusCode int
+	detail     string
+	err        error
+}
+
+func (e *upstreamAuthError) Error() string {
+	if e.err != nil {
+		return fmt.Sprintf("upstream authentication failed: %v", e.err)
+	}
+	if e.detail != "" {
+		return fmt.Sprintf("upstream authentication failed: %s", e.detail)
+	}
+	return "upstream authentication failed"
+}
+
+func (e *upstreamAuthError) Unwrap() error {
+	return e.err
+}
+
 // fetchUpstreamModels asks the ChatGPT backend which models the current
 // account can use, returning only the user-visible ones. Results are cached
 // for upstreamModelsTTL.
@@ -74,47 +94,9 @@ func (s *Server) fetchUpstreamModels(ctx context.Context) ([]upstreamModel, erro
 		return s.modelsCache, nil
 	}
 
-	token, accountID, err := s.credsFetcher.GetCredentials()
+	parsed, err := s.fetchUpstreamModelsWithRetry(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get credentials: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamModelsURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create models request: %w", err)
-	}
-
-	query := req.URL.Query()
-	query.Set("client_version", codexClientVersion)
-	req.URL.RawQuery = query.Encode()
-
-	bareToken := strings.TrimSpace(token)
-	if len(bareToken) >= 7 && strings.EqualFold(bareToken[:7], "Bearer ") {
-		bareToken = strings.TrimSpace(bareToken[7:])
-	}
-
-	req.Header.Set("authorization", "Bearer "+bareToken)
-	req.Header.Set("version", codexClientVersion)
-	req.Header.Set("chatgpt-account-id", accountID)
-	req.Header.Set("originator", "codex_cli_rs")
-	req.Header.Set("user-agent", "codex_cli_rs/"+codexClientVersion+" (Mac OS 26.3.0; arm64) Apple_Terminal/466")
-	req.Header.Set("accept", "application/json")
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list models: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("failed to list models: upstream returned %d: %s",
-			resp.StatusCode, strings.TrimSpace(string(detail)))
-	}
-
-	var parsed upstreamModelsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, fmt.Errorf("failed to parse models response: %w", err)
+		return nil, err
 	}
 
 	visible := make([]upstreamModel, 0, len(parsed.Models))
@@ -138,4 +120,88 @@ func (s *Server) fetchUpstreamModels(ctx context.Context) ([]upstreamModel, erro
 		Msg("Refreshed upstream model list")
 
 	return visible, nil
+}
+
+func (s *Server) fetchUpstreamModelsWithRetry(ctx context.Context) (*upstreamModelsResponse, error) {
+	parsed, statusCode, detail, err := s.fetchUpstreamModelsOnce(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if statusCode != http.StatusUnauthorized {
+		if statusCode != http.StatusOK {
+			return nil, fmt.Errorf("failed to list models: upstream returned %d: %s",
+				statusCode, detail)
+		}
+		return parsed, nil
+	}
+
+	s.logger.Warn().
+		Str("response_body", detail).
+		Msg("Received 401 while listing upstream models, attempting token refresh")
+
+	if err := s.credsFetcher.RefreshCredentials(); err != nil {
+		return nil, &upstreamAuthError{statusCode: statusCode, detail: detail, err: fmt.Errorf("token refresh failed: %w", err)}
+	}
+
+	s.logger.Info().Msg("Successfully refreshed credentials, retrying upstream model list")
+
+	parsed, statusCode, detail, err = s.fetchUpstreamModelsOnce(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if statusCode == http.StatusUnauthorized {
+		return nil, &upstreamAuthError{statusCode: statusCode, detail: detail}
+	}
+	if statusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to list models: upstream returned %d: %s",
+			statusCode, detail)
+	}
+
+	return parsed, nil
+}
+
+func (s *Server) fetchUpstreamModelsOnce(ctx context.Context) (*upstreamModelsResponse, int, string, error) {
+	token, accountID, err := s.credsFetcher.GetCredentials()
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("failed to get credentials: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamModelsURL, nil)
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("failed to create models request: %w", err)
+	}
+
+	query := req.URL.Query()
+	query.Set("client_version", codexClientVersion)
+	req.URL.RawQuery = query.Encode()
+
+	bareToken := strings.TrimSpace(token)
+	if len(bareToken) >= 7 && strings.EqualFold(bareToken[:7], "Bearer ") {
+		bareToken = strings.TrimSpace(bareToken[7:])
+	}
+
+	req.Header.Set("authorization", "Bearer "+bareToken)
+	req.Header.Set("version", codexClientVersion)
+	req.Header.Set("chatgpt-account-id", accountID)
+	req.Header.Set("originator", "codex_cli_rs")
+	req.Header.Set("user-agent", "codex_cli_rs/"+codexClientVersion+" (Mac OS 26.3.0; arm64) Apple_Terminal/466")
+	req.Header.Set("accept", "application/json")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("failed to list models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, resp.StatusCode, strings.TrimSpace(string(detail)), nil
+	}
+
+	var parsed upstreamModelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return nil, resp.StatusCode, "", fmt.Errorf("failed to parse models response: %w", err)
+	}
+
+	return &parsed, resp.StatusCode, "", nil
 }

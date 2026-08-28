@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -130,6 +131,21 @@ func (s *Server) modelsHandler(w http.ResponseWriter, r *http.Request) {
 	upstream, err := s.fetchUpstreamModels(r.Context())
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to list upstream models")
+		var authErr *upstreamAuthError
+		if errors.As(err, &authErr) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			if encodeErr := json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": map[string]interface{}{
+					"message": "Codex upstream authentication failed. Refresh the OAuth credentials and retry.",
+					"type":    "authentication_error",
+					"code":    "token_expired",
+				},
+			}); encodeErr != nil {
+				s.logger.Error().Err(encodeErr).Msg("Failed to encode authentication error response")
+			}
+			return
+		}
 		http.Error(w, "Failed to list models: "+err.Error(), http.StatusBadGateway)
 		return
 	}

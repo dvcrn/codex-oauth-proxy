@@ -182,3 +182,71 @@ func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T)
 		t.Fatalf("expected reasoning effort low in body, got %v", body4["reasoning"])
 	}
 }
+
+func TestTransformResponsesRequestBody_PreservesPortableResponseState(t *testing.T) {
+	longForeignID := strings.Repeat("grok-session-item-", 5)
+	validChatGPTID := "rs_chatgpt_reasoning"
+	body := map[string]interface{}{
+		"input": []interface{}{
+			map[string]interface{}{
+				"type": "message",
+				"id":   longForeignID,
+				"role": "user",
+				"content": []interface{}{
+					map[string]interface{}{
+						"type": "input_text",
+						"text": "Continue this session",
+					},
+				},
+			},
+			map[string]interface{}{
+				"type":              "reasoning",
+				"id":                validChatGPTID,
+				"encrypted_content": "gAAAAAB-chatgpt-private-reasoning",
+			},
+			map[string]interface{}{
+				"type":      "function_call",
+				"id":        longForeignID,
+				"call_id":   "call_keep_this",
+				"name":      "lookup",
+				"arguments": "{}",
+			},
+			map[string]interface{}{
+				"type":    "function_call_output",
+				"id":      longForeignID,
+				"call_id": "call_keep_this",
+				"output":  "done",
+			},
+		},
+	}
+
+	transformResponsesRequestBody(body, modelGPT55, "medium")
+
+	input := body["input"].([]interface{})
+	if len(input) != 4 {
+		t.Fatalf("expected all response items to be preserved, got %d input items", len(input))
+	}
+	for idx, rawItem := range input {
+		item, ok := rawItem.(map[string]interface{})
+		if !ok {
+			t.Fatalf("input[%d] should be a map, got %T", idx, rawItem)
+		}
+		if id, exists := item["id"]; exists && len(id.(string)) > maxResponsesInputItemIDLength {
+			t.Fatalf("input[%d] should not preserve foreign id %q", idx, item["id"])
+		}
+	}
+
+	reasoning := input[1].(map[string]interface{})
+	if reasoning["id"] != validChatGPTID || reasoning["encrypted_content"] == "" {
+		t.Fatalf("expected ChatGPT reasoning state to be preserved, got %v", reasoning)
+	}
+
+	functionCall := input[2].(map[string]interface{})
+	if functionCall["call_id"] != "call_keep_this" {
+		t.Fatalf("expected function call_id to be preserved, got %v", functionCall["call_id"])
+	}
+	functionOutput := input[3].(map[string]interface{})
+	if functionOutput["call_id"] != "call_keep_this" {
+		t.Fatalf("expected function output call_id to be preserved, got %v", functionOutput["call_id"])
+	}
+}
