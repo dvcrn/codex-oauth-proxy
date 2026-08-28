@@ -1,9 +1,31 @@
 package server
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/rs/zerolog"
 )
+
+type responsesRetryHTTPClient struct {
+	responses     []*http.Response
+	requestBodies [][]byte
+}
+
+func (client *responsesRetryHTTPClient) Do(request *http.Request) (*http.Response, error) {
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	client.requestBodies = append(client.requestBodies, body)
+
+	response := client.responses[0]
+	client.responses = client.responses[1:]
+	return response, nil
+}
 
 func TestTransformResponsesRequestBody(t *testing.T) {
 	body := map[string]interface{}{
@@ -183,8 +205,9 @@ func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T)
 	}
 }
 
-func TestTransformResponsesRequestBody_StripsForeignInputItemIDs(t *testing.T) {
+func TestTransformResponsesRequestBody_PreservesPortableResponseState(t *testing.T) {
 	longForeignID := strings.Repeat("grok-session-item-", 5)
+	validChatGPTID := "rs_chatgpt_reasoning"
 	body := map[string]interface{}{
 		"input": []interface{}{
 			map[string]interface{}{
@@ -197,6 +220,11 @@ func TestTransformResponsesRequestBody_StripsForeignInputItemIDs(t *testing.T) {
 						"text": "Continue this session",
 					},
 				},
+			},
+			map[string]interface{}{
+				"type":              "reasoning",
+				"id":                validChatGPTID,
+				"encrypted_content": "gAAAAAB-chatgpt-private-reasoning",
 			},
 			map[string]interface{}{
 				"type":      "function_call",
@@ -217,22 +245,119 @@ func TestTransformResponsesRequestBody_StripsForeignInputItemIDs(t *testing.T) {
 	transformResponsesRequestBody(body, modelGPT55, "medium")
 
 	input := body["input"].([]interface{})
+	if len(input) != 4 {
+		t.Fatalf("expected all response items to be preserved, got %d input items", len(input))
+	}
 	for idx, rawItem := range input {
 		item, ok := rawItem.(map[string]interface{})
 		if !ok {
 			t.Fatalf("input[%d] should be a map, got %T", idx, rawItem)
 		}
-		if _, exists := item["id"]; exists {
+		if id, exists := item["id"]; exists && len(id.(string)) > maxResponsesInputItemIDLength {
 			t.Fatalf("input[%d] should not preserve foreign id %q", idx, item["id"])
 		}
 	}
 
-	functionCall := input[1].(map[string]interface{})
+	reasoning := input[1].(map[string]interface{})
+	if reasoning["id"] != validChatGPTID || reasoning["encrypted_content"] == "" {
+		t.Fatalf("expected ChatGPT reasoning state to be preserved, got %v", reasoning)
+	}
+
+	functionCall := input[2].(map[string]interface{})
 	if functionCall["call_id"] != "call_keep_this" {
 		t.Fatalf("expected function call_id to be preserved, got %v", functionCall["call_id"])
 	}
-	functionOutput := input[2].(map[string]interface{})
+	functionOutput := input[3].(map[string]interface{})
 	if functionOutput["call_id"] != "call_keep_this" {
 		t.Fatalf("expected function output call_id to be preserved, got %v", functionOutput["call_id"])
+	}
+}
+
+func TestRemoveEncryptedReasoningInput(t *testing.T) {
+	body := map[string]interface{}{
+		"input": []interface{}{
+			map[string]interface{}{
+				"type":              "reasoning",
+				"id":                "rs_foreign",
+				"encrypted_content": "ClOk-foreign-private-reasoning",
+			},
+			map[string]interface{}{
+				"type":    "reasoning",
+				"id":      "rs_summary_only",
+				"summary": []interface{}{},
+			},
+			map[string]interface{}{
+				"type":      "function_call",
+				"call_id":   "call_keep_this",
+				"name":      "lookup",
+				"arguments": "{}",
+			},
+		},
+	}
+
+	removed := removeEncryptedReasoningInput(body)
+	if removed != 1 {
+		t.Fatalf("expected one encrypted reasoning item removed, got %d", removed)
+	}
+
+	input := body["input"].([]interface{})
+	if len(input) != 2 {
+		t.Fatalf("expected two portable items to remain, got %d", len(input))
+	}
+	if input[0].(map[string]interface{})["id"] != "rs_summary_only" {
+		t.Fatalf("expected non-encrypted reasoning item to remain, got %v", input[0])
+	}
+	if input[1].(map[string]interface{})["call_id"] != "call_keep_this" {
+		t.Fatalf("expected function call to remain, got %v", input[1])
+	}
+}
+
+func TestResponsesHandler_RetriesUndecryptableReasoning(t *testing.T) {
+	client := &responsesRetryHTTPClient{
+		responses: []*http.Response{
+			{
+				StatusCode: http.StatusBadRequest,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(
+					`{"error":{"code":"invalid_encrypted_content","message":"could not decrypt"}}`,
+				)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader(
+					"data: {\"type\":\"response.completed\"}\n\ndata: [DONE]\n\n",
+				)),
+			},
+		},
+	}
+	server := New(zerolog.Nop(), stubCredentialsFetcher{})
+	server.httpClient = client
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{
+		"model":"gpt-5.5",
+		"input":[
+			{"type":"reasoning","id":"rs_foreign","encrypted_content":"ClOk-foreign"},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}
+		]
+	}`))
+	recorder := httptest.NewRecorder()
+
+	server.responsesHandler(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected compatibility retry to succeed, got status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if len(client.requestBodies) != 2 {
+		t.Fatalf("expected two upstream requests, got %d", len(client.requestBodies))
+	}
+	if !strings.Contains(string(client.requestBodies[0]), `"encrypted_content":"ClOk-foreign"`) {
+		t.Fatalf("expected initial request to preserve encrypted reasoning, got %s", client.requestBodies[0])
+	}
+	if strings.Contains(string(client.requestBodies[1]), `"encrypted_content":"ClOk-foreign"`) {
+		t.Fatalf("expected retry to remove encrypted reasoning, got %s", client.requestBodies[1])
+	}
+	if !strings.Contains(string(client.requestBodies[1]), `"text":"continue"`) {
+		t.Fatalf("expected retry to preserve conversation input, got %s", client.requestBodies[1])
 	}
 }

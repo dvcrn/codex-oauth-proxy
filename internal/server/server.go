@@ -402,6 +402,29 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if statusCode == http.StatusBadRequest && responseAPIErrorCode(responseData) == "invalid_encrypted_content" {
+		removed := removeEncryptedReasoningInput(requestData)
+		if removed > 0 {
+			responseData.Body.Close()
+			modifiedBodyBytes, err = json.Marshal(requestData)
+			if err != nil {
+				s.logger.Error().Err(err).Msg("Error marshalling responses compatibility retry")
+				http.Error(w, "Failed to prepare modified request", http.StatusInternalServerError)
+				return
+			}
+
+			s.logger.Warn().
+				Int("removed_reasoning_items", removed).
+				Msg("Retrying responses request without undecryptable reasoning state")
+			responseData, statusCode, err = s.makeChatGPTRequestWithRetry(r, upstreamURL, modifiedBodyBytes, normalizedModel)
+			if err != nil {
+				s.logger.Error().Err(err).Msg("Error retrying responses request without encrypted reasoning")
+				http.Error(w, "Failed to communicate with upstream API: "+err.Error(), http.StatusServiceUnavailable)
+				return
+			}
+		}
+	}
+
 	if statusCode >= 400 {
 		preview := previewResponseBody(responseData)
 		shape := describeResponsesInputShape(requestData)
@@ -445,6 +468,29 @@ func previewResponseBody(resp *http.Response) string {
 		return preview[:1200] + "…(truncated)"
 	}
 	return preview
+}
+
+func responseAPIErrorCode(resp *http.Response) string {
+	if resp == nil || resp.Body == nil {
+		return ""
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		resp.Body = io.NopCloser(bytes.NewReader(nil))
+		return ""
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	var payload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		return ""
+	}
+	return payload.Error.Code
 }
 
 func describeResponsesInputShape(body map[string]interface{}) []string {

@@ -1,3 +1,5 @@
+- Repo: dvcrn/codex-oauth-proxy
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
@@ -13,33 +15,11 @@ The server uses zerolog for structured JSON logging with zero allocations and hi
 ### Building and Running
 
 ```bash
-# Build the binary (automatically formats code first)
-just build
-
-# Run the server locally
-just run
+# Build the binary
+mise run build
 
 # Run tests
-just test
-
-# Install to GOPATH/bin
-just install
-
-# Build and push Docker image
-just docker-build
-```
-
-### Development Workflow
-
-```bash
-# Format Go code (basic formatting)
-just fmt
-
-# Format Go code with goimports (organizes imports and formats)
-just format
-
-# Clean build artifacts
-just clean
+mise run test
 ```
 
 ### Releasing
@@ -100,6 +80,12 @@ The proxy provides two primary modes of operation via distinct endpoints:
    - Normalizes the requested model and reasoning effort/summary settings
    - Forces streaming mode and derives a prompt cache key
    - Configures Codex-specific headers (Codex CLI user-agent, ChatGPT account ID, beta feature flags)
+
+### Cross-Provider Session Resumption
+
+- Preserve encrypted reasoning items on the first upstream request so native ChatGPT reasoning continuity is not lost.
+- If upstream returns `invalid_encrypted_content`, retry once without encrypted reasoning items while preserving conversation and tool history.
+- Preserve response item IDs up to the upstream 64-character limit; remove longer foreign IDs before forwarding.
 
 ### Environment Requirements
 

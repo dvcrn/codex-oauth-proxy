@@ -2,6 +2,8 @@ package server
 
 import "strings"
 
+const maxResponsesInputItemIDLength = 64
+
 func transformResponsesRequestBody(body map[string]interface{}, requestedModel string, requestedEffort string) (string, string) {
 	normalizedModel := normalizeModel(requestedModel)
 	body["model"] = normalizedModel
@@ -126,7 +128,9 @@ func sanitizeResponsesInput(body map[string]interface{}) {
 		if role, _ := msgMap["role"].(string); role == "system" {
 			continue
 		}
-		delete(msgMap, "id")
+		if id, ok := msgMap["id"].(string); ok && len(id) > maxResponsesInputItemIDLength {
+			delete(msgMap, "id")
+		}
 		contents, ok := msgMap["content"].([]interface{})
 		if !ok {
 			filtered = append(filtered, msg)
@@ -144,4 +148,31 @@ func sanitizeResponsesInput(body map[string]interface{}) {
 		filtered = append(filtered, msg)
 	}
 	body["input"] = filtered
+}
+
+func removeEncryptedReasoningInput(body map[string]interface{}) int {
+	input, ok := body["input"].([]interface{})
+	if !ok {
+		return 0
+	}
+
+	removed := 0
+	filtered := input[:0:0]
+	for _, item := range input {
+		itemMap, ok := item.(map[string]interface{})
+		if !ok {
+			filtered = append(filtered, item)
+			continue
+		}
+		itemType, _ := itemMap["type"].(string)
+		_, hasEncryptedContent := itemMap["encrypted_content"]
+		if itemType == "reasoning" && hasEncryptedContent {
+			removed++
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	body["input"] = filtered
+
+	return removed
 }
