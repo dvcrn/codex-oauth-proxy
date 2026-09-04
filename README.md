@@ -2,6 +2,23 @@
 
 Codex OAuth Proxy exposes the models included with your ChatGPT Codex access through OpenAI-compatible HTTP endpoints. It handles Codex OAuth credentials, forwards requests to the ChatGPT Codex backend, and translates streaming responses for clients such as OpenCode, editors, and agent tools.
 
+```text
+  ┌───────────────┐          ┌───────────────────┐          ┌───────────────────────┐
+  │ External Tool │          │    Local Proxy    │          │    Codex Backend      │
+  │ (OpenCode/etc)│          │                   │          │ (ChatGPT Responses)   │
+  └───────┬───────┘          └─────────┬─────────┘          └───────────┬───────────┘
+          │                            │                                │
+          │  OpenAI-compatible request │    Codex API request           │
+          │ ─────────────────────────▶ │ ─────────────────────────────▶ │
+          │                            │    OAuth access token          │
+          │                            │                                │
+          │  OpenAI-compatible response│    Codex API response          │
+          │ ◀───────────────────────── │ ◀───────────────────────────── │
+          │    JSON or SSE stream      │                                │
+          │                            │                                │
+          ▼                            ▼                                ▼
+```
+
 Use it when a client supports the OpenAI Chat Completions or Responses API but cannot sign in to Codex directly.
 
 ## Quick start
