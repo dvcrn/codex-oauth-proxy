@@ -1,145 +1,98 @@
-# Codex Proxy
+# Codex OAuth Proxy
 
-Transparently proxy OpenAI-compatible chat completions requests to ChatGPT Codex's internal Responses API.
+Codex OAuth Proxy exposes the models included with your ChatGPT Codex access through OpenAI-compatible HTTP endpoints. It handles Codex OAuth credentials, forwards requests to the ChatGPT Codex backend, and translates streaming responses for clients such as OpenCode, editors, and agent tools.
 
 ```text
   ┌───────────────┐          ┌───────────────────┐          ┌───────────────────────┐
-  │ External Tool │          │       Proxy       │          │    Codex Endpoint     │
-  │ (OpenCode/etc)│          │ (Local or Worker) │          │ (ChatGPT Responses)   │
+  │ External Tool │          │    Local Proxy    │          │    Codex Backend      │
+  │ (OpenCode/etc)│          │                   │          │ (ChatGPT Responses)   │
   └───────┬───────┘          └─────────┬─────────┘          └───────────┬───────────┘
           │                            │                                │
-          │  Standard OpenAI Request   │    Internal API Request        │
+          │  OpenAI-compatible request │    Codex API request           │
           │ ─────────────────────────▶ │ ─────────────────────────────▶ │
-          │ (v1/chat/completions)      │ (Wrapped + Codex credentials)  │
+          │                            │    OAuth access token          │
           │                            │                                │
-          │                            │                                │
-          │  Standard API Response     │    Internal API Response       │
+          │  OpenAI-compatible response│    Codex API response          │
           │ ◀───────────────────────── │ ◀───────────────────────────── │
-          │ (Unwrapped + SSE Stream)   │ (Codex-specific Stream)        │
+          │    JSON or SSE stream      │                                │
           │                            │                                │
           ▼                            ▼                                ▼
 ```
 
-This proxy exposes ChatGPT Codex (Plus/Pro subscription) through an OpenAI-compatible interface, allowing you to use opinionated models like `gpt-5` or `gpt-5.1-codex` with tools that expect standard OpenAI APIs.
+Use it when a client supports the OpenAI Chat Completions or Responses API but cannot sign in to Codex directly.
 
-## Install
+## Quick start
 
-Option 1 (recommended): install a prebuilt binary via npm (macOS, Linux, Windows):
+You need a ChatGPT account with Codex access and an existing Codex CLI login.
+
+Install the proxy with npm:
 
 ```bash
 npm install -g codex-oauth-proxy
 ```
 
-Option 2: install with mise:
+Other installation options:
 
 ```bash
+# mise
 mise use -g go:github.com/dvcrn/codex-oauth-proxy/cmd/codex-oauth-proxy@latest
-```
 
-Option 3: install from source with Go:
-
-```bash
+# Go
 go install github.com/dvcrn/codex-oauth-proxy/cmd/codex-oauth-proxy@latest
 ```
 
-## Setup
-
-### Credentials Storage & Migration
-
-The proxy now uses **independent credential storage** to avoid token collisions with the system Codex CLI.
-
-**Default behavior (`--creds-store=auto`)**:
-
-- Stores credentials in `~/.config/codex-oauth-proxy/auth.json` (XDG config directory)
-- On first launch, automatically migrates from:
-  1. Legacy file (`~/.codex/auth.json`) if it exists
-  2. System Keychain if no legacy file found
-- After migration, immediately refreshes tokens to establish an independent token chain
-- All subsequent token refreshes are stored in the new location
-
-**Credential store modes**:
+Sign in with the Codex CLI if you have not already, then start the proxy with a key of your choice:
 
 ```bash
-# Auto migration (default) - uses XDG config directory
-./codex-oauth-proxy --creds-store=auto
-
-# Explicit XDG path
-./codex-oauth-proxy --creds-store=xdg
-
-# Custom path
-./codex-oauth-proxy --creds-store=xdg --creds-path=/custom/path/auth.json
-
-# Legacy mode (shares with system CLI)
-./codex-oauth-proxy --creds-store=legacy --creds-path=~/.codex/auth.json
-
-# Keychain mode (macOS only)
-./codex-oauth-proxy --creds-store=keychain
-
-# Environment variables mode
-./codex-oauth-proxy --creds-store=env
+codex login
+ADMIN_API_KEY="replace-with-a-long-random-value" codex-oauth-proxy
 ```
 
-**Migration flags**:
+The server listens on `http://localhost:9879` by default. Send the admin key as the bearer token:
 
 ```bash
-# Skip immediate token refresh after migration (not recommended)
-./codex-oauth-proxy --disable-migrate-refresh
+curl http://localhost:9879/v1/chat/completions \
+  -H "Authorization: Bearer replace-with-your-admin-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-5.5",
+    "messages": [{"role": "user", "content": "Explain this repository in one sentence."}],
+    "stream": false
+  }'
 ```
 
-**Environment variables** (for `--creds-store=env` mode):
+Point OpenAI-compatible clients at `http://localhost:9879/v1` and use the same admin key as their API key.
+
+## Authentication
+
+There are two separate credentials:
+
+- Codex OAuth credentials authenticate the proxy with the upstream ChatGPT Codex service. The default `auto` store imports an existing Codex CLI login into `$XDG_CONFIG_HOME/codex-oauth-proxy/auth.json` (or `~/.config/codex-oauth-proxy/auth.json` when `XDG_CONFIG_HOME` is unset), keeps its token chain separate from the CLI, and refreshes it when needed.
+- `ADMIN_API_KEY` authenticates clients with your proxy. Protected endpoints accept either `Authorization: Bearer <key>` or `X-API-Key: <key>`.
+
+The default credential mode should work for most local installations. Other modes are available when you need an explicit source:
 
 ```bash
-export ACCESS_TOKEN="your-access-token"
-export ACCOUNT_ID="your-account-id"
-```
-
-**Server config**:
-
-```bash
-export PORT="3000"  # default: 9879
-export ENV="production"  # default: development (console logs)
-export DISABLE_HEALTH_LOGS="true"  # default: false; disables request logging for /health
-```
-
-**Migration logs**:
-The server provides detailed logging during migration:
-
-- `🔍` - Checking for existing credentials
-- `📄` - Reading from legacy file or keychain
-- `💾` - Writing credentials to new location
-- `🔄` - Performing token refresh
-- `✅` - Success indicators
-- `⚠️` - Warnings (e.g., refresh failures)
-- `❌` - Errors
-
-**Troubleshooting**:
-
-- If migration fails, the server will continue with existing credentials if available
-- Check logs for detailed error messages
-- Use `--creds-store=legacy` to temporarily revert to old behavior
-- Manually inspect `~/.config/codex-oauth-proxy/auth.json` for credential status
-
-## Usage
-
-```bash
-just build  # Build binary
-just run    # Run server
-just test   # Run tests
+codex-oauth-proxy --creds-store=xdg
+codex-oauth-proxy --creds-store=xdg --creds-path=/path/to/auth.json
+codex-oauth-proxy --creds-store=legacy
 ```
 
 ## Endpoints
 
-- `POST /v1/chat/completions` - OpenAI chat completions-compatible endpoint
-- `POST /v1/responses` - OpenAI Responses-compatible endpoint (Codex)
-- `GET /health` - Health check
-- `/mcp` - an MCP server exposing the models as tools (`ask_codex`, `ask_codex_models`)
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /v1/chat/completions` | OpenAI-compatible chat completions |
+| `POST /v1/responses` | OpenAI-compatible Responses API |
+| `GET /v1/models` | Models available to the signed-in account, including reasoning-effort variants |
+| `POST /mcp` | Stateless MCP server with `ask_codex` and `ask_codex_models` |
+| `GET /health` | Health check |
+
+The model list comes from the Codex backend. Query `/v1/models` instead of hard-coding model IDs. Clients that cannot set reasoning effort separately can append a suffix such as `-low`, `-medium`, `-high`, `-xhigh`, or `-max` when supported by that model.
 
 ## MCP clients
 
-The proxy also speaks MCP over streamable HTTP at `/mcp`, so any MCP client can ask
-Codex models a question without going through the chat completions or responses
-endpoints. The session is stateless and authenticates with the same `ADMIN_API_KEY`
-as everything else, sent as a bearer token.
+The `/mcp` endpoint uses streamable HTTP and the same admin key as the API endpoints:
 
 ```json
 {
@@ -148,213 +101,32 @@ as everything else, sent as a bearer token.
       "type": "http",
       "url": "http://localhost:9879/mcp",
       "headers": {
-        "Authorization": "Bearer xxxx"
+        "Authorization": "Bearer replace-with-your-admin-key"
       }
     }
   }
 }
 ```
 
-Two tools are exposed:
+It exposes two tools:
 
-- `ask_codex(model, prompt)` - ask a model a single self-contained question and get
-  the answer back as text. There is no conversation history, so the prompt needs to
-  carry all the context. Reasoning effort suffixes work here too, so `gpt-5.5-high`
-  is a valid model.
-- `ask_codex_models()` - list the model IDs that can be passed to `ask_codex`, with the
-  reasoning effort levels each one accepts.
+- `ask_codex(model, prompt)` sends one self-contained prompt to a model.
+- `ask_codex_models()` lists the model IDs and reasoning levels available to the account.
 
-## Models and Reasoning Mappings
+## Configuration
 
-The proxy exposes a small, opinionated set of models and maps many user-facing
-model strings onto canonical backend models.
+| Setting | Default | Description |
+| --- | --- | --- |
+| `ADMIN_API_KEY` | required | Key used to protect generation, admin, and MCP requests |
+| `PORT` | `9879` | Listening port |
+| `ENV` | `development` | Use `production` for JSON logs |
+| `DISABLE_HEALTH_LOGS` | `false` | Disable request logs for `/health` |
+| `--creds-store` | `auto` | Credential source for normal Codex CLI logins: `auto`, `xdg`, or `legacy` |
+| `--creds-path` | platform default | Credential file for `xdg` or `legacy` mode |
 
-### Supported base models
-
-The `/v1/models` endpoint returns metadata for these base models:
-
-- `gpt-5`
-- `gpt-5-codex`
-- `gpt-5.1`
-- `gpt-5.1-codex`
-- `gpt-5.1-codex-max`
-- `gpt-5.2`
-- `gpt-5.2-codex`
-- `gpt-5.3-codex`
-- `gpt-5.3-codex-spark`
-- `gpt-5.5`
-- `gpt-5-codex-mini`
-- `gpt-5.1-codex-mini`
-
-Each base model is also exposed with reasoning-effort suffix variants, e.g.:
-
-- `gpt-5-high`, `gpt-5-medium`, `gpt-5-low`, `gpt-5-minimal`
-- `gpt-5.1-high`, `gpt-5.1-medium`, `gpt-5.1-low`
-- `gpt-5.5-low`, `gpt-5.5-medium`, `gpt-5.5-high`, `gpt-5.5-xhigh`
-- `gpt-5.1-codex-max-low`, `gpt-5.1-codex-max-high`, `gpt-5.1-codex-max-xhigh`
-- `gpt-5.3-codex-spark-low`, `gpt-5.3-codex-spark-medium`, `gpt-5.3-codex-spark-high`, `gpt-5.3-codex-spark-xhigh`
-- `gpt-5-codex-mini-medium`, `gpt-5-codex-mini-high`
-
-These suffix forms are discoverable via `/v1/models` for clients that encode
-reasoning effort in the `model` name.
-
-### Model normalization rules
-
-Incoming requests may use model names with additional decorations. The proxy
-normalizes them to canonical backend models before forwarding upstream:
-
-- Any trailing `-xhigh`, `-high`, `-medium`, `-low`, or `-minimal` suffix is treated as
-  a reasoning-effort hint and stripped from the model name before normalization.
-- Explicit new models are preserved:
-  - `gpt-5.1*` → `gpt-5.1`, `gpt-5.1-codex`, `gpt-5.1-codex-max`, or `gpt-5.1-codex-mini` depending on the prefix.
-  - `gpt-5.5*` → `gpt-5.5` when the suffix is a supported reasoning effort.
-  - `gpt-5-codex-mini*` → `gpt-5-codex-mini`.
-  - `gpt-5.3-codex-spark*` → `gpt-5.3-codex-spark`.
-- For legacy and loose names:
-  - Any model containing `"codex"` (e.g. `gpt-5-mini-codex-preview`) maps to the
-    canonical `gpt-5-codex` model.
-  - Other GPT‑5-series names (e.g. `gpt-5-mini`) collapse to `gpt-5`.
-
-The normalized backend model is what is sent to the upstream `/backend-api/codex/responses`
-endpoint and is also used when rewriting streaming responses.
-
-### Reasoning effort and suffix behavior
-
-Reasoning effort can be provided in three ways:
-
-- `reasoning_effort` top-level string field
-- `reasoning.effort` nested field
-- A `-high`, `-medium`, `-low`, `-xhigh`, or `-minimal` suffix on the `model` name
-  (for clients that cannot set a separate reasoning field)
-
-The proxy combines these inputs as follows:
-
-- It first resolves an effort value from `reasoning_effort`, then `reasoning.effort`,
-  and finally from any `-<effort>` suffix on the `model` string.
-- The value is normalized to one of: `minimal`, `low`, `medium`, `high`, `xhigh`
-  (`none` is treated as `low`).
-- The effort is then **clamped per model** to enforce allowed ranges:
-  - `gpt-5`, `gpt-5-codex`:
-    - Allowed: `minimal`, `low`, `medium`, `high`
-    - No default; if not specified, the proxy omits `reasoning.effort` and lets
-      upstream decide.
-  - `gpt-5.1`, `gpt-5.1-codex`:
-    - Allowed: `low`, `medium`, `high`
-    - `minimal` is coerced to `low`.
-    - Default when unspecified: `low`.
-  - `gpt-5.1-codex-max`:
-    - Allowed: `low`, `medium`, `high`, `xhigh`
-    - `minimal` is coerced to `low`.
-    - Default when unspecified: `low`.
-  - `gpt-5.2`, `gpt-5.2-codex`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `gpt-5.5`:
-    - Allowed: `low`, `medium`, `high`, `xhigh`
-    - Default when unspecified: `medium` (`gpt-5.3-codex-spark` defaults to `high`).
-  - `gpt-5-codex-mini`, `gpt-5.1-codex-mini`:
-    - Allowed: `medium`, `high`
-    - `low`/`minimal`/`none` are coerced to `medium`.
-    - Default when unspecified: `medium`.
-
-This means suffix-only clients like:
-
-- `model: "gpt-5.1-high"`
-- `model: "gpt-5-codex-mini-low"`
-
-will transparently be mapped to the appropriate canonical backend model with a
-compatible reasoning effort (`gpt-5.1` + `high`, `gpt-5-codex-mini` + `medium`,
-respectively), even if they do not send `reasoning_effort` explicitly.
-
-## Example
+## Development
 
 ```bash
-curl -X POST http://localhost:8080/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{"messages": [{"role": "user", "content": "Hello!"}]}'
+mise run test
+mise run build
 ```
-
-## Cloudflare Workers Deployment
-
-### Prerequisites
-
-1. Create a KV namespace in Cloudflare:
-
-   ```bash
-   wrangler kv:namespace create "GEMINI_CLI_KV"
-   ```
-
-2. Update `wrangler.toml` with your KV namespace ID and account ID
-
-### Deployment
-
-```bash
-# Build and deploy
-wrangler deploy
-
-# Set required secrets
-wrangler secret put ADMIN_API_KEY  # Enter your admin API key for credential management
-```
-
-### Managing Credentials
-
-After deployment, populate credentials in KV storage using the admin API.
-
-#### Setting Credentials
-
-Use the POST `/admin/credentials` endpoint to update tokens:
-
-```bash
-curl -X POST https://your-worker.workers.dev/admin/credentials \
-  -H "Authorization: Bearer YOUR_ADMIN_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "accessToken": "your-access-token",
-    "refreshToken": "your-refresh-token",
-    "expiresAt": 1234567890000,
-    "userID": "your-user-id"
-  }'
-```
-
-**Required fields:**
-
-- `accessToken`: Access token for ChatGPT/Codex backend
-- `refreshToken`: Refresh token for automatic renewal
-- `expiresAt`: Token expiration timestamp in milliseconds (Unix timestamp \* 1000)
-- `userID` (optional): User identifier for tracking
-
-**Getting tokens:**
-
-- Retrieve your ChatGPT/Codex session tokens from your OpenAI account session (e.g., via DevTools Network panel).
-- Ensure `expiresAt` reflects the token expiry in milliseconds.
-
-#### Checking Credential Status
-
-To verify the credentials are properly stored and check their expiration:
-
-```bash
-curl https://your-worker.workers.dev/admin/credentials/status \
-  -H "Authorization: Bearer YOUR_ADMIN_API_KEY"
-```
-
-This returns:
-
-```json
-{
-  "type": "oauth",
-  "hasCredentials": true,
-  "userID": "your-user-id",
-  "expiresAt": 1234567890000,
-  "minutesUntilExpiry": 120,
-  "isExpired": false,
-  "needsRefreshSoon": false
-}
-```
-
-**Note:** You can use either `Authorization: Bearer <key>` or `X-API-Key: <key>` headers for authentication.
-
-### Environment Variables for Workers
-
-- `ADMIN_API_KEY` (secret) - Required for accessing admin endpoints
-- KV namespace binding - Configured in `wrangler.toml` as `GEMINI_CLI_KV`
-
-### Token Refresh
-
-The worker automatically refreshes tokens when they expire (within 60 minutes of expiry). Refreshed tokens are automatically saved back to KV storage.
