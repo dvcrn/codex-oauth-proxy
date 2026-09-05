@@ -2,17 +2,19 @@
 
 Codex OAuth Proxy exposes the models included with your ChatGPT Codex access through OpenAI-compatible HTTP endpoints. It handles Codex OAuth credentials, forwards requests to the ChatGPT Codex backend, and translates streaming responses for clients such as OpenCode, editors, and agent tools.
 
+It also provides an MCP server at `/mcp`. Agents can use it to discover the Codex models available to your account and send one-shot prompts without configuring an OpenAI API client.
+
 ```text
   ┌───────────────┐          ┌───────────────────┐          ┌───────────────────────┐
   │ External Tool │          │    Local Proxy    │          │    Codex Backend      │
   │ (OpenCode/etc)│          │                   │          │ (ChatGPT Responses)   │
   └───────┬───────┘          └─────────┬─────────┘          └───────────┬───────────┘
           │                            │                                │
-          │  OpenAI-compatible request │    Codex API request           │
+          │  API or MCP request        │    Codex API request           │
           │ ─────────────────────────▶ │ ─────────────────────────────▶ │
           │                            │    OAuth access token          │
           │                            │                                │
-          │  OpenAI-compatible response│    Codex API response          │
+          │  API or MCP response       │    Codex API response          │
           │ ◀───────────────────────── │ ◀───────────────────────────── │
           │    JSON or SSE stream      │                                │
           │                            │                                │
@@ -92,7 +94,18 @@ The model list comes from the Codex backend. Query `/v1/models` instead of hard-
 
 ## MCP clients
 
-The `/mcp` endpoint uses streamable HTTP and the same admin key as the API endpoints:
+The `/mcp` endpoint lets MCP clients use your Codex account through two tools. It uses stateless streamable HTTP with JSON responses, so the server keeps no conversation or session state between calls.
+
+MCP requests use the proxy's Codex OAuth credentials upstream and the same `ADMIN_API_KEY` as the protected API endpoints. No separate OpenAI API key is required.
+
+MCP configuration varies by client. Configure a streamable HTTP server with:
+
+| Setting | Value |
+| --- | --- |
+| URL | `http://localhost:9879/mcp` |
+| Header | `Authorization: Bearer replace-with-your-admin-key` |
+
+For clients that use an `mcpServers` JSON object:
 
 ```json
 {
@@ -108,10 +121,16 @@ The `/mcp` endpoint uses streamable HTTP and the same admin key as the API endpo
 }
 ```
 
-It exposes two tools:
+The client discovers these tools after it connects:
 
-- `ask_codex(model, prompt)` sends one self-contained prompt to a model.
-- `ask_codex_models()` lists the model IDs and reasoning levels available to the account.
+| Tool | Input | Result |
+| --- | --- | --- |
+| `ask_codex_models` | None | Available model IDs, display names, and supported reasoning efforts |
+| `ask_codex` | `model`, `prompt` | The requested model, model that served the request, and response text |
+
+Call `ask_codex_models` first when the model ID is not already known. Reasoning effort can be selected with a model suffix such as `gpt-5.5-high` when that effort appears in the model listing.
+
+`ask_codex` is one-shot. It does not retain conversation history, so `prompt` must include all context needed for that call. The returned `model` may differ from `requested_model` when the proxy normalizes a model ID.
 
 ## Configuration
 
