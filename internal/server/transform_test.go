@@ -227,8 +227,8 @@ func TestBuildCodexInputMessagesPreservesImageURLs(t *testing.T) {
 	}
 
 	input := buildCodexInputMessages(request)
-	require.Len(t, input, 2)
-	userMessage, ok := input[1].(map[string]interface{})
+	require.Len(t, input, 1)
+	userMessage, ok := input[0].(map[string]interface{})
 	require.True(t, ok)
 	contents, ok := userMessage["content"].([]interface{})
 	require.True(t, ok)
@@ -242,6 +242,42 @@ func TestBuildCodexInputMessagesPreservesImageURLs(t *testing.T) {
 		"image_url": dataURL,
 		"detail":    "high",
 	}, contents[1])
+}
+
+func TestBuildCodexRequestBodyUsesOnlyCallerInstructions(t *testing.T) {
+	request := map[string]interface{}{
+		"model": modelGPT55,
+		"messages": []interface{}{
+			map[string]interface{}{"role": "system", "content": "Keep answers brief."},
+			map[string]interface{}{"role": "user", "content": "Hello"},
+		},
+	}
+
+	body := buildCodexRequestBody(request)
+	assert.Equal(t, "Keep answers brief.", body["instructions"])
+
+	encoded, err := json.Marshal(body)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "You are a coding agent running in the Codex CLI")
+	assert.NotContains(t, string(encoded), "Priority: CRITICAL")
+}
+
+func TestBuildCodexRequestBodyOmitsSyntheticDeveloperMessage(t *testing.T) {
+	request := map[string]interface{}{
+		"model": modelGPT55,
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": "Hello"},
+		},
+	}
+
+	body := buildCodexRequestBody(request)
+	assert.Equal(t, "", body["instructions"])
+	input, ok := body["input"].([]interface{})
+	require.True(t, ok)
+	require.Len(t, input, 1)
+	message, ok := input[0].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "user", message["role"])
 }
 
 func TestCollectUserContentPreservesHTTPImageURL(t *testing.T) {
