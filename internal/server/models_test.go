@@ -37,16 +37,31 @@ func TestModelsFromUpstreamIncludesBaseAndSuffixVariants(t *testing.T) {
 		// Base models
 		"gpt-5.5",
 		"gpt-5.6-sol",
-		// Suffix variants derived from the upstream effort levels
+		// Suffix variants derived from explicit capabilities and upstream levels
+		"gpt-5.5-none",
 		"gpt-5.5-low",
 		"gpt-5.5-medium",
 		"gpt-5.5-high",
 		"gpt-5.5-xhigh",
+		"gpt-5.6-sol-none",
 		"gpt-5.6-sol-low",
 		"gpt-5.6-sol-max",
 	} {
 		if !seen[id] {
 			t.Fatalf("expected model %q to be present in the listing", id)
+		}
+	}
+}
+
+func TestModelsFromUpstreamDoesNotAdvertiseUnsupportedNoneVariant(t *testing.T) {
+	models := modelsFromUpstream([]upstreamModel{
+		{Slug: modelGPT6Astra, DisplayName: "GPT-6-Astra"},
+		{Slug: "gpt-brand-new", DisplayName: "Brand New"},
+	})
+
+	for _, model := range models {
+		if model.ID == modelGPT6Astra+"-none" || model.ID == "gpt-brand-new-none" {
+			t.Fatalf("unsupported none variant %q was advertised", model.ID)
 		}
 	}
 }

@@ -5,20 +5,19 @@ package server
 // upstream requests and as the client_version query parameter when listing
 // models; the backend gates both model availability and protocol features on
 // it, so the two must stay in sync.
-const codexClientVersion = "0.144.6"
+const codexClientVersion = "0.153.0"
 
-// Models currently served by the ChatGPT Codex backend. The GPT-5.0 through
-// GPT-5.3 generation (and its -codex variants) was retired upstream: the
-// backend rejects those IDs for every client_version, so they are no longer
-// modelled here. The authoritative list is the /backend-api/codex/models
-// endpoint; these constants exist for normalization and defaults.
+// Models currently served by the ChatGPT Codex backend. The authoritative list
+// is the /backend-api/codex/models endpoint; these constants exist for request
+// normalization and model-specific reasoning behavior.
 const (
-	modelGPT54        = "gpt-5.4"
+	modelGPT53Spark   = "gpt-5.3-codex-spark"
 	modelGPT54Mini    = "gpt-5.4-mini"
 	modelGPT55        = "gpt-5.5"
 	modelGPT5Sol      = "gpt-5.6-sol"
 	modelGPT5Terra    = "gpt-5.6-terra"
 	modelGPT5Luna     = "gpt-5.6-luna"
+	modelGPT6Astra    = "gpt-6-astra"
 	modelDaybreakBlue = "gpt-daybreak-blue-latest"
 
 	// modelDefault is used when a request names no model, or names one that is
@@ -27,28 +26,29 @@ const (
 )
 
 // modelAllowedEfforts defines which reasoning effort levels are valid for each
-// canonical backend model. Keys are canonical model IDs used in upstream
-// requests (after normalization). These mirror the supported_reasoning_levels
-// reported by the upstream models endpoint.
+// canonical backend model. The upstream models endpoint omits "none" for models
+// that accept it, so that capability is maintained explicitly here.
 var modelAllowedEfforts = map[string][]string{
-	modelGPT54:        {"low", "medium", "high", "xhigh"},
-	modelGPT54Mini:    {"low", "medium", "high", "xhigh"},
-	modelGPT55:        {"low", "medium", "high", "xhigh"},
-	modelGPT5Sol:      {"low", "medium", "high", "xhigh", "max"},
-	modelGPT5Terra:    {"low", "medium", "high", "xhigh", "max"},
-	modelGPT5Luna:     {"low", "medium", "high", "xhigh", "max"},
-	modelDaybreakBlue: {"low", "medium", "high", "xhigh", "max"},
+	modelGPT53Spark:   {"low", "medium", "high", "xhigh"},
+	modelGPT54Mini:    {"none", "low", "medium", "high", "xhigh"},
+	modelGPT55:        {"none", "low", "medium", "high", "xhigh"},
+	modelGPT5Sol:      {"none", "low", "medium", "high", "xhigh", "max"},
+	modelGPT5Terra:    {"none", "low", "medium", "high", "xhigh", "max"},
+	modelGPT5Luna:     {"none", "low", "medium", "high", "xhigh", "max"},
+	modelGPT6Astra:    {"low", "medium", "high", "xhigh", "max"},
+	modelDaybreakBlue: {"none", "low", "medium", "high", "xhigh", "max"},
 }
 
 // modelDefaultEffort defines the default reasoning effort to apply when the
 // user does not explicitly specify an effort for the given model.
 var modelDefaultEffort = map[string]string{
-	modelGPT54:        "medium",
+	modelGPT53Spark:   "high",
 	modelGPT54Mini:    "medium",
 	modelGPT55:        "medium",
 	modelGPT5Sol:      "low",
 	modelGPT5Terra:    "medium",
 	modelGPT5Luna:     "medium",
+	modelGPT6Astra:    "medium",
 	modelDaybreakBlue: "low",
 }
 
@@ -81,37 +81,6 @@ type modelsResponse struct {
 }
 
 var modelMetadataByID = map[string]modelMetadata{
-	modelGPT54: {
-		Capabilities: map[string]interface{}{
-			"family": "gpt-5.4",
-			"limits": map[string]interface{}{
-				"max_context_window_tokens": 264000,
-				"max_output_tokens":         64000,
-				"max_prompt_tokens":         128000,
-				"vision": map[string]interface{}{
-					"max_prompt_image_size": 3145728,
-					"max_prompt_images":     1,
-					"supported_media_types": []string{"image/jpeg", "image/png", "image/webp", "image/gif"},
-				},
-			},
-			"object":    "model_capabilities",
-			"supports":  map[string]interface{}{"parallel_tool_calls": true, "streaming": true, "structured_outputs": true, "tool_calls": true, "vision": true},
-			"tokenizer": "o200k_base",
-			"type":      "chat",
-		},
-		ID:                  modelGPT54,
-		ModelPickerCategory: "versatile",
-		ModelPickerEnabled:  true,
-		Name:                "GPT-5.4",
-		Object:              "model",
-		Policy: &modelPolicy{
-			State: "enabled",
-			Terms: "Enable access to GPT-5.4 from OpenAI. [Learn more about how GitHub Copilot serves GPT-5.4](https://gh.io/copilot-openai).",
-		},
-		Preview: false,
-		Vendor:  "Azure OpenAI",
-		Version: "gpt-5.4",
-	},
 	modelGPT55: {
 		Capabilities: map[string]interface{}{
 			"family": "gpt-5.5",
@@ -204,7 +173,11 @@ func modelsFromUpstream(upstream []upstreamModel) []modelMetadata {
 
 		models = append(models, base)
 
-		for _, effort := range model.efforts() {
+		efforts := model.efforts()
+		if modelSupportsReasoningEffort(model.Slug, "none") {
+			efforts = append([]string{"none"}, efforts...)
+		}
+		for _, effort := range efforts {
 			variant := base
 			variant.ID = model.Slug + "-" + effort
 			variant.Name = base.Name + " (" + effort + " reasoning)"

@@ -22,13 +22,13 @@ func TestTransformResponsesRequestBody(t *testing.T) {
 		"reasoning_effort": "none",
 	}
 
-	normalizedModel, normalizedEffort := transformResponsesRequestBody(body, "gpt-5-codex-preview", "none")
+	normalizedModel, normalizedEffort := transformResponsesRequestBody(body, modelGPT5Sol, "none")
 
-	if normalizedModel != modelDefault {
-		t.Fatalf("expected normalized model %s, got %q", modelDefault, normalizedModel)
+	if normalizedModel != modelGPT5Sol {
+		t.Fatalf("expected normalized model %s, got %q", modelGPT5Sol, normalizedModel)
 	}
-	if normalizedEffort != "low" {
-		t.Fatalf("expected normalized effort low, got %q", normalizedEffort)
+	if normalizedEffort != "none" {
+		t.Fatalf("expected normalized effort none, got %q", normalizedEffort)
 	}
 
 	instr, _ := body["instructions"].(string)
@@ -62,8 +62,8 @@ func TestTransformResponsesRequestBody(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected reasoning map to be present")
 	}
-	if reasoning["effort"] != "low" {
-		t.Fatalf("expected reasoning effort low, got %v", reasoning["effort"])
+	if reasoning["effort"] != "none" {
+		t.Fatalf("expected reasoning effort none, got %v", reasoning["effort"])
 	}
 
 	if store, ok := body["store"].(bool); !ok || store {

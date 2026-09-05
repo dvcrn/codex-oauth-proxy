@@ -295,7 +295,7 @@ func normalizeModel(model string) string {
 	lower := strings.ToLower(strings.TrimSpace(model))
 	// Longest-first so "-xhigh" is not mistaken for "-high". Note this assumes
 	// no served model's name ends in one of these words.
-	for _, effort := range []string{"-minimal", "-medium", "-xhigh", "-high", "-low", "-max"} {
+	for _, effort := range []string{"-minimal", "-medium", "-xhigh", "-high", "-none", "-low", "-max"} {
 		if strings.HasSuffix(lower, effort) {
 			lower = strings.TrimSuffix(lower, effort)
 			break
@@ -308,7 +308,7 @@ func normalizeModel(model string) string {
 	// Exact matches on currently-served models first, so a valid ID is never
 	// rewritten by the looser prefix matching below.
 	switch lower {
-	case modelGPT5Sol, modelGPT5Terra, modelGPT5Luna, modelDaybreakBlue, modelGPT55, modelGPT54, modelGPT54Mini:
+	case modelGPT53Spark, modelGPT54Mini, modelGPT55, modelGPT5Sol, modelGPT5Terra, modelGPT5Luna, modelGPT6Astra, modelDaybreakBlue:
 		return lower
 	}
 
@@ -330,8 +330,11 @@ func normalizeModel(model string) string {
 	if strings.Contains(lower, "gpt-5.4-mini") {
 		return modelGPT54Mini
 	}
-	if strings.Contains(lower, "gpt-5.4") {
-		return modelGPT54
+	if strings.Contains(lower, "gpt-6-astra") {
+		return modelGPT6Astra
+	}
+	if strings.Contains(lower, "gpt-5.3-codex-spark") {
+		return modelGPT53Spark
 	}
 
 	// Unrecognized models, including the retired GPT-5.0 to GPT-5.3 family,
@@ -359,7 +362,7 @@ func normalizeReasoningEffort(effort string) string {
 	case "max":
 		return "max"
 	case "none":
-		return "low"
+		return "none"
 	default:
 		return ""
 	}
@@ -383,7 +386,7 @@ func resolveReasoningEffort(requestData map[string]interface{}) string {
 
 	if model, ok := requestData["model"].(string); ok {
 		lowerModel := strings.ToLower(strings.TrimSpace(model))
-		for _, effort := range []string{"minimal", "medium", "xhigh", "high", "low", "max"} {
+		for _, effort := range []string{"minimal", "medium", "xhigh", "high", "none", "low", "max"} {
 			if strings.HasSuffix(lowerModel, "-"+effort) {
 				return effort
 			}
@@ -418,6 +421,15 @@ func buildReasoningSettings(requestData map[string]interface{}) map[string]inter
 	return settings
 }
 
+func modelSupportsReasoningEffort(backendModel, effort string) bool {
+	for _, allowedEffort := range modelAllowedEfforts[backendModel] {
+		if effort == allowedEffort {
+			return true
+		}
+	}
+	return false
+}
+
 // clampReasoningEffortForModel enforces per-model reasoning effort limits and
 // applies model-specific defaults when no explicit effort is provided.
 func clampReasoningEffortForModel(effort, backendModel string) string {
@@ -436,10 +448,8 @@ func clampReasoningEffortForModel(effort, backendModel string) string {
 	if !ok || len(allowed) == 0 {
 		return effort
 	}
-	for _, a := range allowed {
-		if effort == a {
-			return effort
-		}
+	if modelSupportsReasoningEffort(backendModel, effort) {
+		return effort
 	}
 
 	if def, ok := modelDefaultEffort[backendModel]; ok && def != "" {

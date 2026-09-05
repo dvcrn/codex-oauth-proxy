@@ -139,16 +139,21 @@ func TestNormalizeModel(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"gpt-5.4 base", "gpt-5.4", "gpt-5.4"},
-		{"gpt-5.4 with effort suffix", "gpt-5.4-high", "gpt-5.4"},
+		{"retired gpt-5.4", "gpt-5.4", modelDefault},
+		{"retired gpt-5.4 with effort suffix", "gpt-5.4-high", modelDefault},
 		{"gpt-5.4-mini base", "gpt-5.4-mini", "gpt-5.4-mini"},
 		{"gpt-5.4-mini with effort suffix", "gpt-5.4-mini-xhigh", "gpt-5.4-mini"},
+		{"gpt-5.4-mini with none suffix", "gpt-5.4-mini-none", "gpt-5.4-mini"},
 		{"gpt-5.5 base", "gpt-5.5", "gpt-5.5"},
 		{"gpt-5.5 with suffix", "gpt-5.5-xhigh", "gpt-5.5"},
 		{"gpt-5.6-sol base", "gpt-5.6-sol", "gpt-5.6-sol"},
 		{"gpt-5.6-sol with effort suffix", "gpt-5.6-sol-high", "gpt-5.6-sol"},
 		{"gpt-5.6-sol with max suffix", "gpt-5.6-sol-max", "gpt-5.6-sol"},
+		{"gpt-5.6-sol with none suffix", "gpt-5.6-sol-none", "gpt-5.6-sol"},
 		{"gpt-5.6-terra base", "gpt-5.6-terra", "gpt-5.6-terra"},
+		{"gpt-6-astra base", "gpt-6-astra", "gpt-6-astra"},
+		{"gpt-6-astra with max suffix", "gpt-6-astra-max", "gpt-6-astra"},
+		{"gpt-5.3-codex-spark base", "gpt-5.3-codex-spark", "gpt-5.3-codex-spark"},
 		{"gpt-5.6-luna base", "gpt-5.6-luna", "gpt-5.6-luna"},
 		{"daybreak blue", "gpt-daybreak-blue-latest", "gpt-daybreak-blue-latest"},
 		{"uppercase is normalized", "GPT-5.5", "gpt-5.5"},
@@ -162,7 +167,6 @@ func TestNormalizeModel(t *testing.T) {
 		{"retired gpt-5.2", "gpt-5.2", modelDefault},
 		{"retired gpt-5.2-codex", "gpt-5.2-codex", modelDefault},
 		{"retired gpt-5.3-codex", "gpt-5.3-codex", modelDefault},
-		{"retired gpt-5.3-codex-spark", "gpt-5.3-codex-spark", modelDefault},
 		{"unknown model", "some-other-model", modelDefault},
 		{"empty", "", modelDefault},
 
@@ -189,7 +193,7 @@ func TestNormalizeReasoningEffort(t *testing.T) {
 		{"explicit medium", "medium", "medium"},
 		{"explicit high", "high", "high"},
 		{"explicit xhigh", "xhigh", "xhigh"},
-		{"none maps to low", "none", "low"},
+		{"explicit none", "none", "none"},
 		{"uppercase", "MEDIUM", "medium"},
 		{"empty", "", ""},
 		{"invalid", "aggressive", ""},
@@ -263,22 +267,22 @@ func TestClampReasoningEffortForModel(t *testing.T) {
 		inputEffort string
 		expected    string
 	}{
-		{"gpt-5.4 allows low", modelGPT54, "low", "low"},
-		{"gpt-5.4 allows medium", modelGPT54, "medium", "medium"},
-		{"gpt-5.4 allows high", modelGPT54, "high", "high"},
-		{"gpt-5.4 allows xhigh", modelGPT54, "xhigh", "xhigh"},
-		{"gpt-5.4 disallows minimal -> medium", modelGPT54, "minimal", "medium"},
-		{"gpt-5.4 default when empty -> medium", modelGPT54, "", "medium"},
+		{"gpt-5.4-mini allows none", modelGPT54Mini, "none", "none"},
 		{"gpt-5.4-mini allows xhigh", modelGPT54Mini, "xhigh", "xhigh"},
 		{"gpt-5.4-mini default when empty -> medium", modelGPT54Mini, "", "medium"},
+		{"gpt-5.5 allows none", modelGPT55, "none", "none"},
 		{"gpt-5.5 allows xhigh", modelGPT55, "xhigh", "xhigh"},
 		{"gpt-5.5 default -> medium", modelGPT55, "", "medium"},
 		{"gpt-5.5 disallows max -> model default", modelGPT55, "max", "medium"},
+		{"gpt-5.6-sol allows none", modelGPT5Sol, "none", "none"},
 		{"gpt-5.6-sol allows max", modelGPT5Sol, "max", "max"},
 		{"gpt-5.6-sol rejects wire-unsupported ultra -> default", modelGPT5Sol, "ultra", "low"},
 		{"gpt-5.6-sol default -> low", modelGPT5Sol, "", "low"},
+		{"gpt-5.6-luna allows none", modelGPT5Luna, "none", "none"},
 		{"gpt-5.6-luna allows max", modelGPT5Luna, "max", "max"},
 		{"gpt-5.6-terra rejects wire-unsupported ultra -> default", modelGPT5Terra, "ultra", "medium"},
+		{"gpt-6-astra rejects none -> default", modelGPT6Astra, "none", "medium"},
+		{"gpt-5.3-codex-spark rejects none -> default", modelGPT53Spark, "none", "high"},
 	}
 
 	for _, tc := range tests {

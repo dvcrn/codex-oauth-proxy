@@ -78,7 +78,7 @@ func (c *stubModelsHTTPClient) Do(req *http.Request) (*http.Response, error) {
 const upstreamModelsFixture = `{"models":[
   {"slug":"gpt-5.5","display_name":"GPT-5.5","visibility":"list",
    "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"}]},
-  {"slug":"gpt-5.4","display_name":"GPT-5.4","visibility":"list",
+  {"slug":"gpt-5.4-mini","display_name":"GPT-5.4-Mini","visibility":"list",
    "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]},
   {"slug":"codex-auto-review","display_name":"Codex Auto Review","visibility":"hide",
    "supported_reasoning_levels":[{"effort":"low"}]}
