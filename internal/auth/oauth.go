@@ -24,6 +24,10 @@ func TokenExpired(expiresAtMs int64) bool {
 	return currentTimeMs >= (expiresAtMs - bufferMs)
 }
 
+type httpDoer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
 // RefreshToken performs an OAuth token refresh and returns new credentials
 func RefreshToken(refreshToken string) (*TokenRefreshResponse, error) {
 	request := TokenRefreshRequest{
@@ -38,7 +42,13 @@ func RefreshToken(refreshToken string) (*TokenRefreshResponse, error) {
 		return nil, fmt.Errorf("failed to marshal refresh request: %w", err)
 	}
 
-	resp, err := http.Post(OAuthTokenURL, "application/json", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest(http.MethodPost, OAuthTokenURL, bytes.NewReader(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create refresh request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := newHTTPClient().Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make refresh request: %w", err)
 	}

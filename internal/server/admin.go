@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"net/http"
 	"strings"
 
@@ -31,7 +33,7 @@ func (s *Server) adminMiddleware(next http.HandlerFunc) http.HandlerFunc {
 					Str("uri", r.RequestURI).
 					Str("remote_addr", r.RemoteAddr).
 					Msg("Invalid Authorization header format for admin endpoint")
-				http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
+				writeUnauthorized(w, "Invalid Authorization header format")
 				return
 			}
 			providedToken = parts[1]
@@ -44,18 +46,19 @@ func (s *Server) adminMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				Str("uri", r.RequestURI).
 				Str("remote_addr", r.RemoteAddr).
 				Msg("Missing required Authorization or X-API-Key header for admin endpoint")
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			writeUnauthorized(w, "Unauthorized")
 			return
 		}
 
-		// Verify admin key
-		if providedToken != adminKey {
+		providedHash := sha256.Sum256([]byte(providedToken))
+		expectedHash := sha256.Sum256([]byte(adminKey))
+		if subtle.ConstantTimeCompare(providedHash[:], expectedHash[:]) != 1 {
 			s.logger.Warn().
 				Str("method", r.Method).
 				Str("uri", r.RequestURI).
 				Str("remote_addr", r.RemoteAddr).
 				Msg("Invalid admin API key provided")
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			writeUnauthorized(w, "Unauthorized")
 			return
 		}
 
@@ -68,4 +71,10 @@ func (s *Server) adminMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		next(w, r)
 	}
+}
+
+func writeUnauthorized(w http.ResponseWriter, message string) {
+	w.Header().Set("WWW-Authenticate", "Bearer")
+	w.Header().Set("Cache-Control", "no-store")
+	http.Error(w, message, http.StatusUnauthorized)
 }

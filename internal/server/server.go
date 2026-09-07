@@ -45,6 +45,7 @@ type Server struct {
 	mux               *http.ServeMux
 	logger            zerolog.Logger
 	disableHealthLogs bool
+	deviceAuth        *DeviceAuth
 
 	// Cached result of the upstream model listing, guarded by modelsCacheMu.
 	modelsCacheMu     sync.Mutex
@@ -52,7 +53,15 @@ type Server struct {
 	modelsCacheExpiry time.Time
 }
 
-func New(logger zerolog.Logger, credsFetcher credentials.CredentialsFetcher) *Server {
+type Option func(*Server)
+
+func WithDeviceAuth(store DeviceAuthStore) Option {
+	return func(s *Server) {
+		s.deviceAuth = newDeviceAuth(store, s.httpClient)
+	}
+}
+
+func New(logger zerolog.Logger, credsFetcher credentials.CredentialsFetcher, options ...Option) *Server {
 	disableHealthLogs, _ := strconv.ParseBool(env.GetOrDefault("DISABLE_HEALTH_LOGS", "false"))
 
 	s := &Server{
@@ -61,6 +70,9 @@ func New(logger zerolog.Logger, credsFetcher credentials.CredentialsFetcher) *Se
 		mux:               http.NewServeMux(),
 		logger:            logger,
 		disableHealthLogs: disableHealthLogs,
+	}
+	for _, option := range options {
+		option(s)
 	}
 
 	s.setupRoutes()
@@ -74,6 +86,12 @@ func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("/health", s.healthHandler)
 	s.mux.HandleFunc("/admin/credentials", s.adminMiddleware(s.credentialsHandler))
 	s.mux.HandleFunc("/admin/credentials/status", s.adminMiddleware(s.credentialsStatusHandler))
+	if s.deviceAuth != nil {
+		s.mux.HandleFunc("/admin/auth/start", s.adminMiddleware(s.deviceAuthStartHandler))
+		s.mux.HandleFunc("/admin/auth/status", s.adminMiddleware(s.deviceAuthStatusHandler))
+		s.mux.HandleFunc("/admin/tokens", s.adminMiddleware(s.tokensHandler))
+		s.mux.HandleFunc("/admin/status", s.adminMiddleware(s.tokenStatusHandler))
+	}
 
 	// MCP endpoint. The handler is built once so the tool set is shared across
 	// requests; the session itself is stateless.

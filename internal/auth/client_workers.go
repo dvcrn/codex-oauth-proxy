@@ -1,6 +1,6 @@
 //go:build js && wasm
 
-package server
+package auth
 
 import (
 	"net/http"
@@ -10,36 +10,33 @@ import (
 	"github.com/syumai/workers/cloudflare/fetch"
 )
 
-// WorkersHTTPClient implements HTTPClient for Cloudflare Workers
-type WorkersHTTPClient struct {
+// workersHTTPClient routes requests through the Workers fetch API. The stdlib
+// transport is unavailable under js/wasm and panics with "Illegal invocation".
+type workersHTTPClient struct {
 	client *fetch.Client
 }
 
-// NewHTTPClient creates a new HTTP client for Workers environment
-func NewHTTPClient() HTTPClient {
+// newHTTPClient returns the HTTP client used for OAuth token refresh.
+func newHTTPClient() httpDoer {
 	binding := cloudflare.GetBinding("CODEX_EGRESS")
 	namespace := js.Global().Get("Object").New()
 	namespace.Set("fetch", binding.Get("fetch").Call("bind", binding))
-	return &WorkersHTTPClient{
+	return &workersHTTPClient{
 		client: fetch.NewClient(fetch.WithBinding(namespace)),
 	}
 }
 
-// Do performs an HTTP request using Cloudflare Workers fetch
-func (c *WorkersHTTPClient) Do(req *http.Request) (*http.Response, error) {
-	// Create a new fetch request
+func (c *workersHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	fetchReq, err := fetch.NewRequest(req.Context(), req.Method, req.URL.String(), req.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	// Copy headers from the original request
 	for key, values := range req.Header {
 		for _, value := range values {
 			fetchReq.Header.Set(key, value)
 		}
 	}
 
-	// Perform the request
 	return c.client.Do(fetchReq, &fetch.RequestInit{Redirect: fetch.RedirectModeManual})
 }

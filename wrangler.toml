@@ -1,12 +1,16 @@
 name = "codex-oauth-proxy"
 main = "build/worker.mjs"
-compatibility_date = "2022-05-13"
+compatibility_date = "2026-09-07"
 account_id = "02c07a2514d9a25f58c78a180bb8c6f3"
+workers_dev = true
 compatibility_flags = [
     "streams_enable_constructors"
 ]
 kv_namespaces = [
-  { binding = "claude_code_proxy_kv", id = "4f29ea2d933f4340b2ae3442c459e39f" }
+  { binding = "CODEX_AUTH", id = "02622ed96cc6498789e9d342a17891fe" }
+]
+vpc_networks = [
+  { binding = "CODEX_EGRESS", tunnel_id = "ce0561f2-73c2-486f-98ee-1a2f2e72ffa8", remote = true }
 ]
 
 [vars]

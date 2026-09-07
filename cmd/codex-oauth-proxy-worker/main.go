@@ -7,6 +7,7 @@ import (
 	"github.com/dvcrn/codex-oauth-proxy/internal/auth"
 	"github.com/dvcrn/codex-oauth-proxy/internal/credentials"
 	"github.com/dvcrn/codex-oauth-proxy/internal/logger"
+	"github.com/dvcrn/codex-oauth-proxy/internal/server"
 	"github.com/syumai/workers"
 )
 
@@ -24,7 +25,7 @@ func main() {
 	oauthFetcher := auth.NewOAuthFetcher(kvFetcher, &log)
 
 	// Create server using OAuth-wrapped fetcher
-	srv := app.NewServer(oauthFetcher, log)
+	srv := app.NewServer(oauthFetcher, log, server.WithDeviceAuth(kvFetcher))
 
 	// Serve using workers - it handles all the HTTP server setup
 	workers.Serve(srv)

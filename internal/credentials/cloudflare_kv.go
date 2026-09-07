@@ -21,6 +21,8 @@ type kvCredentials struct {
 }
 
 // CloudflareKVFetcher retrieves credentials from Cloudflare KV
+const deviceAuthSessionKey = "device-auth"
+
 type CloudflareKVFetcher struct {
 	kvStore *kv.Namespace
 }
@@ -29,7 +31,7 @@ type CloudflareKVFetcher struct {
 func NewCloudflareKVFetcher() (*CloudflareKVFetcher, error) {
 	// In Cloudflare Workers, KV namespaces are accessed via bindings
 	// The binding name is configured in wrangler.toml
-	kvStore, err := kv.NewNamespace("claude_code_proxy_kv")
+	kvStore, err := kv.NewNamespace("CODEX_AUTH")
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize KV namespace: %w", err)
 	}
@@ -102,6 +104,35 @@ func (c *CloudflareKVFetcher) SetInitialCredentials(accessToken, refreshToken st
 	}
 
 	return c.setKVCredentials(creds)
+}
+
+func (c *CloudflareKVFetcher) LoadDeviceAuthSession() ([]byte, error) {
+	session, err := c.kvStore.GetString(deviceAuthSessionKey, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get device auth session: %w", err)
+	}
+	if session == "" || session == "<null>" {
+		return nil, nil
+	}
+	return []byte(session), nil
+}
+
+func (c *CloudflareKVFetcher) SaveDeviceAuthSession(session []byte) error {
+	if err := c.kvStore.PutString(deviceAuthSessionKey, string(session), nil); err != nil {
+		return fmt.Errorf("failed to save device auth session: %w", err)
+	}
+	return nil
+}
+
+func (c *CloudflareKVFetcher) StoreCredentials(accessToken, refreshToken string, expiresAt int64, userID string) error {
+	return c.SetInitialCredentials(accessToken, refreshToken, expiresAt, userID, nil)
+}
+
+func (c *CloudflareKVFetcher) CompleteDeviceAuth(accessToken, refreshToken string, expiresAt int64, userID string) error {
+	if err := c.StoreCredentials(accessToken, refreshToken, expiresAt, userID); err != nil {
+		return err
+	}
+	return c.SaveDeviceAuthSession([]byte(`{"status":"authenticated"}`))
 }
 
 // RefreshCredentials is a no-op for Cloudflare KV credentials

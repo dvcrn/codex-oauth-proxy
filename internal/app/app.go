@@ -7,7 +7,6 @@ import (
 )
 
 // NewServer creates a new server instance with the given credentials fetcher
-func NewServer(credsFetcher credentials.CredentialsFetcher, logger zerolog.Logger) *server.Server {
-	// Create server with the credentials fetcher
-	return server.New(logger, credsFetcher)
+func NewServer(credsFetcher credentials.CredentialsFetcher, logger zerolog.Logger, options ...server.Option) *server.Server {
+	return server.New(logger, credsFetcher, options...)
 }

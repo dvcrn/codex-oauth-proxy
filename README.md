@@ -88,6 +88,11 @@ codex-oauth-proxy --creds-store=legacy
 | `POST /v1/responses` | OpenAI-compatible Responses API |
 | `GET /v1/models` | Models available to the signed-in account, including reasoning-effort variants |
 | `POST /mcp` | Stateless MCP server with `ask_codex` and `ask_codex_models` |
+| `POST /admin/auth/start` | Start Workers device authorization |
+| `GET /admin/auth/status` | Read the current device authorization state |
+| `POST /admin/auth/status` | Poll device authorization and store completed credentials |
+| `POST /admin/tokens` | Store Codex credentials manually in Workers KV |
+| `GET /admin/status` | Report whether Workers credentials are configured |
 | `GET /health` | Health check |
 
 The model list comes from the Codex backend. Query `/v1/models` instead of hard-coding model IDs. Clients that cannot set reasoning effort separately can append a suffix such as `-low`, `-medium`, `-high`, `-xhigh`, or `-max` when supported by that model.
@@ -142,6 +147,64 @@ Call `ask_codex_models` first when the model ID is not already known. Reasoning 
 | `DISABLE_HEALTH_LOGS` | `false` | Disable request logs for `/health` |
 | `--creds-store` | `auto` | Credential source for normal Codex CLI logins: `auto`, `xdg`, or `legacy` |
 | `--creds-path` | platform default | Credential file for `xdg` or `legacy` mode |
+
+## Deploy to Cloudflare Workers
+
+The ChatGPT Codex endpoints reject direct Cloudflare Workers egress with HTTP 403. A [Workers VPC](https://developers.cloudflare.com/workers-vpc/) tunnel is therefore required so requests leave through a machine outside Cloudflare's Worker IP ranges.
+
+1. In **Cloudflare Dashboard > Workers VPC > Tunnels**, create a remotely managed tunnel. Run the generated `cloudflared` installer on a machine with normal Internet access. Workers VPC requires `cloudflared` 2025.7.0 or newer and QUIC access over outbound UDP port 7844. See Cloudflare's [tunnel setup](https://developers.cloudflare.com/workers-vpc/configuration/tunnel/).
+2. Create a KV namespace:
+
+   ```bash
+   wrangler kv namespace create CODEX_OAUTH_PROXY_KV
+   ```
+
+3. Put the account ID, returned KV ID, and tunnel UUID in `wrangler.toml`:
+
+   ```toml
+   account_id = "<ACCOUNT_ID>"
+
+   kv_namespaces = [
+     { binding = "CODEX_AUTH", id = "<KV_NAMESPACE_ID>" }
+   ]
+   vpc_networks = [
+     { binding = "CODEX_EGRESS", tunnel_id = "<TUNNEL_ID>", remote = true }
+   ]
+   ```
+
+   The VPC network binding is documented in [Cloudflare's VPC Networks guide](https://developers.cloudflare.com/workers-vpc/configuration/vpc-networks/).
+
+4. Deploy and set the client-facing admin key at Wrangler's secure prompt:
+
+   ```bash
+   wrangler deploy
+   wrangler secret put ADMIN_API_KEY
+   ```
+
+### Authorize Codex on Workers
+
+The device flow is available only in the Workers build. All admin requests require `Authorization: Bearer <ADMIN_API_KEY>` or `X-API-Key: <ADMIN_API_KEY>`.
+
+```bash
+read -rs ADMIN_API_KEY
+export ADMIN_API_KEY
+BASE_URL="https://<WORKER_NAME>.<SUBDOMAIN>.workers.dev"
+
+curl -X POST "$BASE_URL/admin/auth/start" \
+  -H "Authorization: Bearer $ADMIN_API_KEY"
+```
+
+Open the returned `verificationUrl`, enter `userCode`, and approve access. Then poll until the response is `{"status":"authenticated"}`:
+
+```bash
+curl -X POST "$BASE_URL/admin/auth/status" \
+  -H "Authorization: Bearer $ADMIN_API_KEY"
+
+curl "$BASE_URL/admin/status" \
+  -H "Authorization: Bearer $ADMIN_API_KEY"
+```
+
+`POST /admin/tokens` provides manual credential setup. It accepts `accessToken` plus optional `refreshToken`, `accountId`, `idToken`, and RFC 3339 `lastRefresh` fields. Successful device or manual authorization stores credentials in the configured `CODEX_AUTH` KV namespace.
 
 ## Development
 
