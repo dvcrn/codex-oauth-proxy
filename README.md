@@ -152,6 +152,8 @@ Call `ask_codex_models` first when the model ID is not already known. Reasoning 
 
 The ChatGPT Codex endpoints reject direct Cloudflare Workers egress with HTTP 403. A [Workers VPC](https://developers.cloudflare.com/workers-vpc/) tunnel is therefore required so requests leave through a machine outside Cloudflare's Worker IP ranges.
 
+Install [mise](https://mise.jdx.dev/), [just](https://just.systems/), and Wrangler 4, then run `mise install` and `wrangler login`. The account, namespace, and tunnel IDs checked into `wrangler.toml` belong to the maintainer deployment and must be replaced for another Cloudflare account.
+
 1. In **Cloudflare Dashboard > Workers VPC > Tunnels**, create a remotely managed tunnel. Run the generated `cloudflared` installer on a machine with normal Internet access. Workers VPC requires `cloudflared` 2025.7.0 or newer and QUIC access over outbound UDP port 7844. See Cloudflare's [tunnel setup](https://developers.cloudflare.com/workers-vpc/configuration/tunnel/).
 2. Create a KV namespace:
 
@@ -181,6 +183,16 @@ The ChatGPT Codex endpoints reject direct Cloudflare Workers egress with HTTP 40
    wrangler secret put ADMIN_API_KEY
    ```
 
+5. Optional: configure a hostname as a [Workers Custom Domain](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/) instead of creating a CNAME to `workers.dev`:
+
+   ```toml
+   routes = [
+     { pattern = "codex.example.com", custom_domain = true }
+   ]
+   ```
+
+   Run `wrangler deploy` again after adding the route.
+
 ### Authorize Codex on Workers
 
 The device flow is available only in the Workers build. All admin requests require `Authorization: Bearer <ADMIN_API_KEY>` or `X-API-Key: <ADMIN_API_KEY>`.
@@ -194,7 +206,7 @@ curl -X POST "$BASE_URL/admin/auth/start" \
   -H "Authorization: Bearer $ADMIN_API_KEY"
 ```
 
-Open the returned `verificationUrl`, enter `userCode`, and approve access. Then poll until the response is `{"status":"authenticated"}`:
+Open the returned `verificationUrl`, enter `userCode`, and approve access. Poll no faster than `retryAfterSeconds`. Stop on `authenticated`, `denied`, `expired`, or `failed`; the session also expires automatically after 15 minutes:
 
 ```bash
 curl -X POST "$BASE_URL/admin/auth/status" \
