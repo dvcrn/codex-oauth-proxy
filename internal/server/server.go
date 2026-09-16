@@ -280,12 +280,14 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 	transport := upstreamTransportForModel(normalizedModel)
 
 	// Log request details
+	serviceTier, _ := target["service_tier"].(string)
 	logEvent := s.logger.Info().
 		Str("requested_model", requestedModel).
 		Str("normalized_model", normalizedModel).
 		Str("upstream_transport", transport).
 		Str("requested_reasoning_effort", reasoningEffort).
 		Str("normalized_reasoning_effort", normalizedReasoningEffort).
+		Str("service_tier", serviceTier).
 		Int("message_count", messageCount).
 		Str("user_agent", r.UserAgent()).
 		Str("endpoint", upstreamURL).
@@ -401,12 +403,14 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 
 	upstreamURL := "https://chatgpt.com/backend-api/codex/responses"
 	transport := upstreamTransportForModel(normalizedModel)
+	serviceTier, _ := requestData["service_tier"].(string)
 	logEvent := s.logger.Info().
 		Str("requested_model", requestedModel).
 		Str("normalized_model", normalizedModel).
 		Str("upstream_transport", transport).
 		Str("requested_reasoning_effort", requestedEffort).
 		Str("normalized_reasoning_effort", normalizedEffort).
+		Str("service_tier", serviceTier).
 		Str("prompt_cache_key", cacheKey).
 		Int("input_count", inputCount).
 		Str("user_agent", r.UserAgent()).
