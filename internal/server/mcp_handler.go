@@ -20,8 +20,9 @@ const (
 
 // askCodexInput is the input for the ask_codex tool.
 type askCodexInput struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
+	Model       string `json:"model"`
+	Prompt      string `json:"prompt"`
+	ServiceTier string `json:"service_tier,omitempty"`
 }
 
 // askCodexOutput is the structured result of the ask_codex tool. Model is the
@@ -68,6 +69,10 @@ func (s *Server) newMCPServer() *mcpsdk.Server {
 				"Use ask_codex_models to list the IDs the ChatGPT Codex CLI backend currently offers, " +
 				"along with the efforts each one accepts."),
 			"prompt": mcpStringSchema("The full question or instruction to send to the model."),
+			"service_tier": mcpStringSchema("Optional upstream service tier, e.g. priority for " +
+				"faster scheduling. Omit to use the account's default tier. Entitlement is " +
+				"enforced upstream, so an unavailable tier fails the call rather than " +
+				"falling back."),
 		}, "model", "prompt"),
 	}, s.mcpAskCodex)
 
@@ -103,6 +108,22 @@ func (s *Server) mcpHandler() http.HandlerFunc {
 	return handler.ServeHTTP
 }
 
+// buildAskCodexRequestData assembles the request shape the chat completions
+// handler builds from, so model normalization, reasoning effort resolution and
+// the Codex CLI instructions behave exactly as they do on /v1/chat/completions.
+func buildAskCodexRequestData(model, prompt, serviceTier string) map[string]interface{} {
+	requestData := map[string]interface{}{
+		"model": model,
+		"messages": []interface{}{
+			map[string]interface{}{"role": "user", "content": prompt},
+		},
+	}
+	if serviceTier != "" {
+		requestData["service_tier"] = serviceTier
+	}
+	return requestData
+}
+
 func (s *Server) mcpAskCodex(ctx context.Context, in askCodexInput) (askCodexOutput, error) {
 	prompt := strings.TrimSpace(in.Prompt)
 	if prompt == "" {
@@ -114,15 +135,8 @@ func (s *Server) mcpAskCodex(ctx context.Context, in askCodexInput) (askCodexOut
 		return askCodexOutput{}, fmt.Errorf("model is required; call ask_codex_models to list available models")
 	}
 
-	// Reuse the same request shape the chat completions handler builds from, so
-	// model normalization, reasoning effort resolution and the Codex CLI
-	// instructions all behave exactly as they do on /v1/chat/completions.
-	requestData := map[string]interface{}{
-		"model": requestedModel,
-		"messages": []interface{}{
-			map[string]interface{}{"role": "user", "content": prompt},
-		},
-	}
+	serviceTier := strings.TrimSpace(in.ServiceTier)
+	requestData := buildAskCodexRequestData(requestedModel, prompt, serviceTier)
 
 	normalizedModel := normalizeModel(requestedModel)
 	body, err := json.Marshal(buildCodexRequestBody(requestData))
@@ -133,6 +147,7 @@ func (s *Server) mcpAskCodex(ctx context.Context, in askCodexInput) (askCodexOut
 	s.logger.Info().
 		Str("requested_model", requestedModel).
 		Str("normalized_model", normalizedModel).
+		Str("service_tier", serviceTier).
 		Int("prompt_len", len(prompt)).
 		Msg("MCP ask_codex request received")
 

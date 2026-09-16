@@ -192,6 +192,11 @@ func TestMCPToolsList(t *testing.T) {
 	schema, ok := tools["ask_codex"]["inputSchema"].(map[string]interface{})
 	require.True(t, ok)
 	assert.ElementsMatch(t, []interface{}{"model", "prompt"}, schema["required"])
+
+	// service_tier is offered but stays optional, so existing callers keep working.
+	properties, ok := schema["properties"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Contains(t, properties, "service_tier")
 }
 
 func TestMCPAskCodexRejectsBlankInput(t *testing.T) {
@@ -390,4 +395,12 @@ func TestMCPAllowsNonLoopbackHost(t *testing.T) {
 	result, ok := decoded["result"].(map[string]interface{})
 	require.True(t, ok, "expected a result object, got %v", decoded)
 	require.NotEmpty(t, result["tools"])
+}
+
+func TestBuildAskCodexRequestDataServiceTier(t *testing.T) {
+	withTier := buildCodexRequestBody(buildAskCodexRequestData("gpt-5", "hi", "priority"))
+	assert.Equal(t, "priority", withTier["service_tier"])
+
+	withoutTier := buildCodexRequestBody(buildAskCodexRequestData("gpt-5", "hi", ""))
+	assert.NotContains(t, withoutTier, "service_tier")
 }

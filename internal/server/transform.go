@@ -172,6 +172,10 @@ func buildCodexRequestBody(requestData map[string]interface{}) map[string]interf
 	// Include fields requested in capture
 	body["include"] = []interface{}{"reasoning.encrypted_content"}
 
+	if tier := resolveServiceTier(requestData); tier != "" {
+		body["service_tier"] = tier
+	}
+
 	if _, ok := body["prompt_cache_key"].(string); !ok {
 		if key := derivePromptCacheKey(normalizedModel, instructions, extractFirstUserText(body)); key != "" {
 			body["prompt_cache_key"] = key
@@ -335,6 +339,14 @@ func normalizeReasoningEffort(effort string) string {
 	default:
 		return ""
 	}
+}
+
+// resolveServiceTier returns the client-requested upstream service tier ("priority",
+// "ultrafast", ...). Values are passed through unvalidated so upstream stays the
+// authority on which tiers exist and which models may use them.
+func resolveServiceTier(requestData map[string]interface{}) string {
+	tier, _ := requestData["service_tier"].(string)
+	return strings.TrimSpace(tier)
 }
 
 func resolveReasoningEffort(requestData map[string]interface{}) string {

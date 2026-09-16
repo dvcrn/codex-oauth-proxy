@@ -250,3 +250,27 @@ func TestTransformResponsesRequestBody_PreservesPortableResponseState(t *testing
 		t.Fatalf("expected function output call_id to be preserved, got %v", functionOutput["call_id"])
 	}
 }
+
+func TestTransformResponsesRequestBodyPreservesServiceTier(t *testing.T) {
+	body := map[string]interface{}{
+		"model":        "gpt-5",
+		"service_tier": "priority",
+	}
+	transformResponsesRequestBody(body, "gpt-5", "")
+
+	if body["service_tier"] != "priority" {
+		t.Fatalf("expected service_tier priority, got %v", body["service_tier"])
+	}
+}
+
+func TestTransformResponsesRequestBodyDropsEmptyServiceTier(t *testing.T) {
+	body := map[string]interface{}{
+		"model":        "gpt-5",
+		"service_tier": "",
+	}
+	transformResponsesRequestBody(body, "gpt-5", "")
+
+	if _, ok := body["service_tier"]; ok {
+		t.Fatalf("expected service_tier to be dropped, got %v", body["service_tier"])
+	}
+}

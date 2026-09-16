@@ -11,6 +11,12 @@ func transformResponsesRequestBody(body map[string]interface{}, requestedModel s
 	// Responses must always disable server-side store per upstream requirements
 	body["store"] = false
 
+	if tier := resolveServiceTier(body); tier != "" {
+		body["service_tier"] = tier
+	} else {
+		delete(body, "service_tier")
+	}
+
 	var userInstr string
 	if existingInstr, ok := body["instructions"].(string); ok {
 		userInstr = strings.TrimSpace(existingInstr)

@@ -328,3 +328,27 @@ func TestClampReasoningEffortForModel(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildCodexRequestBodyForwardsServiceTier(t *testing.T) {
+	body := buildCodexRequestBody(map[string]interface{}{
+		"model":        "gpt-5",
+		"service_tier": "priority",
+		"messages":     []interface{}{map[string]interface{}{"role": "user", "content": "hi"}},
+	})
+
+	if body["service_tier"] != "priority" {
+		t.Fatalf("expected service_tier priority, got %v", body["service_tier"])
+	}
+}
+
+func TestBuildCodexRequestBodyOmitsEmptyServiceTier(t *testing.T) {
+	body := buildCodexRequestBody(map[string]interface{}{
+		"model":        "gpt-5",
+		"service_tier": "   ",
+		"messages":     []interface{}{map[string]interface{}{"role": "user", "content": "hi"}},
+	})
+
+	if _, ok := body["service_tier"]; ok {
+		t.Fatalf("expected service_tier to be omitted, got %v", body["service_tier"])
+	}
+}
