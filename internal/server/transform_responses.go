@@ -5,7 +5,11 @@ import "strings"
 const maxResponsesInputItemIDLength = 64
 
 func transformResponsesRequestBody(body map[string]interface{}, requestedModel string, requestedEffort string) (string, string) {
-	normalizedModel := normalizeModel(requestedModel)
+	return transformResponsesRequestBodyWithModels(body, requestedModel, requestedEffort, nil)
+}
+
+func transformResponsesRequestBodyWithModels(body map[string]interface{}, requestedModel string, requestedEffort string, models []upstreamModel) (string, string) {
+	normalizedModel := resolveModelWithModels(requestedModel, models)
 	body["model"] = normalizedModel
 
 	// Responses must always disable server-side store per upstream requirements
@@ -91,7 +95,7 @@ func transformResponsesRequestBody(body map[string]interface{}, requestedModel s
 	}
 
 	normalizedEffort := normalizeReasoningEffort(requestedEffort)
-	clampedEffort := clampReasoningEffortForModel(normalizedEffort, normalizedModel)
+	clampedEffort := clampReasoningEffortForModelWithModels(normalizedEffort, normalizedModel, models)
 	summary := resolveReasoningSummary(body)
 	reasoningSettings := map[string]interface{}{}
 	if summary != nil {

@@ -15,10 +15,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const (
-	websocketResponsesBetaHeader = "responses_websockets=2026-02-04"
-	websocketResponsesVersion    = "0.101.0"
-)
+const websocketResponsesBetaHeader = "responses_websockets=2026-02-04"
 
 func supportsWebSocketUpstream() bool {
 	return true
@@ -43,12 +40,9 @@ func (s *Server) makeChatGPTWebSocketRequest(r *http.Request, rawURL string, bod
 
 	sessionID := newUUIDv4()
 	headers := http.Header{}
-	headers.Set("authorization", "Bearer "+bareToken)
-	headers.Set("version", websocketResponsesVersion)
+	setCodexRequestHeaders(headers, s.clientIdentity, token, accountID, "text/event-stream")
 	headers.Set("openai-beta", websocketResponsesBetaHeader)
 	headers.Set("session_id", sessionID)
-	headers.Set("chatgpt-account-id", accountID)
-	headers.Set("originator", "codex_cli_rs")
 	headers.Set("x-codex-beta-features", "collab,apps")
 	headers.Set("x-codex-turn-metadata", `{"sandbox":"none"}`)
 
@@ -61,7 +55,7 @@ func (s *Server) makeChatGPTWebSocketRequest(r *http.Request, rawURL string, bod
 		}()).
 		Str("chatgpt-account-id", accountID).
 		Str("session_id", sessionID).
-		Str("version", websocketResponsesVersion).
+		Str("version", s.clientIdentity.version).
 		Str("openai-beta", websocketResponsesBetaHeader).
 		Msg("Upstream websocket headers (sanitized)")
 

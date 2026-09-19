@@ -139,8 +139,9 @@ func TestNormalizeModel(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"retired gpt-5.4", "gpt-5.4", modelDefault},
-		{"retired gpt-5.4 with effort suffix", "gpt-5.4-high", modelDefault},
+		{"newly launched model", "gpt-6.1-codex", "gpt-6.1-codex"},
+		{"newly launched model with effort", "gpt-6.1-codex-xhigh", "gpt-6.1-codex"},
+		{"unknown model", "some-other-model", "some-other-model"},
 		{"gpt-5.4-mini base", "gpt-5.4-mini", "gpt-5.4-mini"},
 		{"gpt-5.4-mini with effort suffix", "gpt-5.4-mini-xhigh", "gpt-5.4-mini"},
 		{"gpt-5.4-mini with none suffix", "gpt-5.4-mini-none", "gpt-5.4-mini"},
@@ -167,12 +168,13 @@ func TestNormalizeModel(t *testing.T) {
 		{"retired gpt-5.2", "gpt-5.2", modelDefault},
 		{"retired gpt-5.2-codex", "gpt-5.2-codex", modelDefault},
 		{"retired gpt-5.3-codex", "gpt-5.3-codex", modelDefault},
-		{"unknown model", "some-other-model", modelDefault},
+		{"retired gpt-5.4", "gpt-5.4", "gpt-5.4"},
+		{"retired gpt-5.4 with effort suffix", "gpt-5.4-high", "gpt-5.4"},
 		{"empty", "", modelDefault},
 
 		{"retired gpt-5-codex-mini", "gpt-5-codex-mini", "gpt-5.4-mini"},
 		{"retired gpt-5.1-codex-mini", "gpt-5.1-codex-mini", "gpt-5.4-mini"},
-		{"gpt-4o mini", "gpt-4o-mini", "gpt-5.4-mini"},
+		{"gpt-4o mini passes through", "gpt-4o-mini", "gpt-4o-mini"},
 	}
 
 	for _, tc := range testCases {
@@ -327,6 +329,51 @@ func TestClampReasoningEffortForModel(t *testing.T) {
 			assert.Equal(t, tc.expected, actual)
 		})
 	}
+}
+
+func TestResolveModelPreservesRealSlugEndingInEffort(t *testing.T) {
+	models := []upstreamModel{{
+		Slug:                  "gpt-next-high",
+		DefaultReasoningLevel: "low",
+	}}
+	body := buildCodexRequestBodyWithModels(map[string]interface{}{
+		"model":    "GPT-NEXT-HIGH",
+		"messages": []interface{}{map[string]interface{}{"role": "user", "content": "hi"}},
+	}, models)
+
+	assert.Equal(t, "gpt-next-high", body["model"])
+	reasoning := body["reasoning"].(map[string]interface{})
+	assert.Equal(t, "low", reasoning["effort"])
+}
+
+func TestBuildCodexRequestBodyUsesLiveModelPolicy(t *testing.T) {
+	models := []upstreamModel{{
+		Slug:                  "gpt-6.1-codex",
+		DefaultReasoningLevel: "high",
+		SupportedReasoningLevel: []struct {
+			Effort string `json:"effort"`
+		}{{Effort: "low"}, {Effort: "high"}},
+	}}
+	body := buildCodexRequestBodyWithModels(map[string]interface{}{
+		"model":    "gpt-6.1-codex",
+		"messages": []interface{}{map[string]interface{}{"role": "user", "content": "hi"}},
+	}, models)
+
+	assert.Equal(t, "gpt-6.1-codex", body["model"])
+	reasoning := body["reasoning"].(map[string]interface{})
+	assert.Equal(t, "high", reasoning["effort"])
+}
+
+func TestBuildCodexRequestBodyPassesUnknownEffortThrough(t *testing.T) {
+	body := buildCodexRequestBody(map[string]interface{}{
+		"model":            "gpt-6.1-codex-max",
+		"reasoning_effort": "max",
+		"messages":         []interface{}{map[string]interface{}{"role": "user", "content": "hi"}},
+	})
+
+	assert.Equal(t, "gpt-6.1-codex", body["model"])
+	reasoning := body["reasoning"].(map[string]interface{})
+	assert.Equal(t, "max", reasoning["effort"])
 }
 
 func TestBuildCodexRequestBodyForwardsServiceTier(t *testing.T) {
