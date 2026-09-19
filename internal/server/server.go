@@ -47,10 +47,10 @@ type Server struct {
 	disableHealthLogs bool
 	deviceAuth        *DeviceAuth
 
-	// Cached result of the upstream model listing, guarded by modelsCacheMu.
-	modelsCacheMu     sync.Mutex
-	modelsCache       []upstreamModel
-	modelsCacheExpiry time.Time
+	clientIdentity  codexClientIdentity
+	modelsCacheMu   sync.Mutex
+	modelsCache     map[modelCatalogKey]modelCatalogSnapshot
+	modelsRefreshes map[modelCatalogKey]*modelCatalogRefresh
 }
 
 type Option func(*Server)
@@ -70,6 +70,9 @@ func New(logger zerolog.Logger, credsFetcher credentials.CredentialsFetcher, opt
 		mux:               http.NewServeMux(),
 		logger:            logger,
 		disableHealthLogs: disableHealthLogs,
+		clientIdentity:    configuredCodexClientIdentity(),
+		modelsCache:       make(map[modelCatalogKey]modelCatalogSnapshot),
+		modelsRefreshes:   make(map[modelCatalogKey]*modelCatalogRefresh),
 	}
 	for _, option := range options {
 		option(s)
@@ -223,7 +226,6 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Extract request parameters for logging
 	requestedModel := resolveRequestModel(requestData)
-	normalizedModel := normalizeModel(requestedModel)
 	reasoningEffort := resolveReasoningEffort(requestData)
 	normalizedReasoningEffort := normalizeReasoningEffort(reasoningEffort)
 
@@ -234,8 +236,11 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 
 	logToolCallInteractions(s.logger, requestData)
 
+	models := s.cachedModelsForCurrentAccount()
+	normalizedModel := resolveModelWithModels(requestedModel, models)
+
 	// Build target body for ChatGPT Codex Responses
-	target := buildCodexRequestBody(requestData)
+	target := buildCodexRequestBodyWithModels(requestData, models)
 
 	// Debug: log inbound and outbound (sanitized previews)
 	inboundPreview := string(requestBodyBytes)
@@ -358,14 +363,16 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestedModel := resolveRequestModel(requestData)
-	requestedEffort := resolveReasoningEffort(requestData)
 	inputCount := 0
 	if input, ok := requestData["input"].([]interface{}); ok {
 		inputCount = len(input)
 	}
 
+	models := s.cachedModelsForCurrentAccount()
+	requestedEffort := resolveReasoningEffortWithModels(requestData, models)
+
 	// Transform request body
-	normalizedModel, normalizedEffort := transformResponsesRequestBody(requestData, requestedModel, requestedEffort)
+	normalizedModel, normalizedEffort := transformResponsesRequestBodyWithModels(requestData, requestedModel, requestedEffort, models)
 	cacheKey, _ := requestData["prompt_cache_key"].(string)
 
 	modifiedBodyBytes, err := json.Marshal(requestData)
@@ -518,15 +525,10 @@ func (s *Server) makeChatGPTRequest(r *http.Request, url string, body []byte, to
 	}
 
 	// Set headers for ChatGPT backend
-	proxyReq.Header.Set("authorization", "Bearer "+bareToken)
-	proxyReq.Header.Set("version", codexClientVersion)
+	setCodexRequestHeaders(proxyReq.Header, s.clientIdentity, token, accountID, "text/event-stream")
 	proxyReq.Header.Set("openai-beta", "responses=experimental")
 	proxyReq.Header.Set("session_id", newUUIDv4())
-	proxyReq.Header.Set("accept", "text/event-stream")
 	proxyReq.Header.Set("content-type", "application/json")
-	proxyReq.Header.Set("chatgpt-account-id", accountID)
-	proxyReq.Header.Set("originator", "codex_cli_rs")
-	proxyReq.Header.Set("user-agent", "codex_cli_rs/"+codexClientVersion+" (Mac OS 26.3.0; arm64) Apple_Terminal/466")
 	proxyReq.Header.Set("x-codex-beta-features", "multi_agent,apps,prevent_idle_sleep")
 	// The CLI uses turn_id, so let's mock one
 	proxyReq.Header.Set("x-codex-turn-metadata", `{"turn_id":"`+newUUIDv4()+`","sandbox":"none"}`)

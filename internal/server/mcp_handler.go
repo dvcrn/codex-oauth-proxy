@@ -138,8 +138,9 @@ func (s *Server) mcpAskCodex(ctx context.Context, in askCodexInput) (askCodexOut
 	serviceTier := strings.TrimSpace(in.ServiceTier)
 	requestData := buildAskCodexRequestData(requestedModel, prompt, serviceTier)
 
-	normalizedModel := normalizeModel(requestedModel)
-	body, err := json.Marshal(buildCodexRequestBody(requestData))
+	models := s.cachedModelsForCurrentAccount()
+	normalizedModel := resolveModelWithModels(requestedModel, models)
+	body, err := json.Marshal(buildCodexRequestBodyWithModels(requestData, models))
 	if err != nil {
 		return askCodexOutput{}, fmt.Errorf("failed to prepare request for model %q: %w", requestedModel, err)
 	}

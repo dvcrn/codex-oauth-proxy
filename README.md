@@ -95,7 +95,9 @@ codex-oauth-proxy --creds-store=legacy
 | `GET /admin/status` | Report whether Workers credentials are configured |
 | `GET /health` | Health check |
 
-The model list comes from the Codex backend. Query `/v1/models` instead of hard-coding model IDs. Clients that cannot set reasoning effort separately can append a suffix such as `-low`, `-medium`, `-high`, `-xhigh`, or `-max` when supported by that model.
+The model list comes from the authenticated Codex backend and reflects the signed-in account's current entitlements. Successful catalogs stay fresh for five minutes; if a later refresh fails because of a timeout, transport error, rate limit, or upstream 5xx response, the proxy can serve the last successful catalog only for the same account and Codex client version. Authentication failures and malformed or empty successful responses are never hidden by stale data.
+
+Query `/v1/models` instead of hard-coding model IDs. Newly returned model IDs pass through to Codex unchanged. Clients that cannot set reasoning effort separately can append a suffix such as `-low`, `-medium`, `-high`, `-xhigh`, or `-max` when supported by that model.
 
 ## MCP clients
 
@@ -138,6 +140,8 @@ Call `ask_codex_models` first when the model ID is not already known. Reasoning 
 `ask_codex` is one-shot. It does not retain conversation history, so `prompt` must include all context needed for that call. The returned `model` may differ from `requested_model` when the proxy normalizes a model ID.
 
 ## Configuration
+
+Set `CODEX_CLIENT_VERSION` to a complete semantic version such as `0.153.0` to override the Codex CLI identity used for model discovery and Responses requests. The backend gates model availability and protocol behavior on this version, so upgrading the proxy or changing this value can refresh the available catalog. Invalid values fall back to the version compiled into the binary. The proxy does not query GitHub or the OpenAI Platform model endpoint at runtime.
 
 | Setting | Default | Description |
 | --- | --- | --- |

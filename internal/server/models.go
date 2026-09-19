@@ -1,11 +1,36 @@
 package server
 
-// codexClientVersion is the Codex CLI version this proxy identifies as when
-// talking to the ChatGPT backend. It is sent as the "version" header on
-// upstream requests and as the client_version query parameter when listing
-// models; the backend gates both model availability and protocol features on
-// it, so the two must stay in sync.
-const codexClientVersion = "0.153.0"
+import (
+	"regexp"
+	"strings"
+
+	"github.com/dvcrn/codex-oauth-proxy/internal/env"
+)
+
+const (
+	defaultCodexClientVersion = "0.153.0"
+	codexOriginator           = "codex_cli_rs"
+)
+
+var semanticVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+
+type codexClientIdentity struct {
+	version    string
+	originator string
+	userAgent  string
+}
+
+func configuredCodexClientIdentity() codexClientIdentity {
+	version := strings.TrimSpace(env.GetOrDefault("CODEX_CLIENT_VERSION", defaultCodexClientVersion))
+	if !semanticVersionPattern.MatchString(version) {
+		version = defaultCodexClientVersion
+	}
+	return codexClientIdentity{
+		version:    version,
+		originator: codexOriginator,
+		userAgent:  codexOriginator + "/" + version,
+	}
+}
 
 // Models currently served by the ChatGPT Codex backend. The authoritative list
 // is the /backend-api/codex/models endpoint; these constants exist for request
@@ -20,8 +45,7 @@ const (
 	modelGPT6Astra    = "gpt-6-astra"
 	modelDaybreakBlue = "gpt-daybreak-blue-latest"
 
-	// modelDefault is used when a request names no model, or names one that is
-	// no longer served.
+	// modelDefault is used when a request names no model.
 	modelDefault = modelGPT55
 )
 
@@ -58,6 +82,7 @@ var modelDefaultEffort = map[string]string{
 // avoid bespoke types for every nested object.
 type modelMetadata struct {
 	Capabilities        map[string]interface{} `json:"capabilities"`
+	Description         string                 `json:"description,omitempty"`
 	ID                  string                 `json:"id"`
 	ModelPickerCategory string                 `json:"model_picker_category,omitempty"`
 	ModelPickerEnabled  bool                   `json:"model_picker_enabled"`
@@ -152,6 +177,10 @@ var modelMetadataByID = map[string]modelMetadata{
 // models) are still listed, with defaults.
 func modelsFromUpstream(upstream []upstreamModel) []modelMetadata {
 	models := make([]modelMetadata, 0, len(upstream))
+	realSlugs := make(map[string]bool, len(upstream))
+	for _, candidate := range upstream {
+		realSlugs[candidate.Slug] = true
+	}
 	for _, model := range upstream {
 		base, ok := modelMetadataByID[model.Slug]
 		if !ok {
@@ -170,6 +199,10 @@ func modelsFromUpstream(upstream []upstreamModel) []modelMetadata {
 			base.Name = model.Slug
 		}
 		base.ID = model.Slug
+		base.Description = model.Description
+		if len(model.SupportedEndpoints) > 0 {
+			base.SupportedEndpoints = append([]string(nil), model.SupportedEndpoints...)
+		}
 
 		models = append(models, base)
 
@@ -178,8 +211,12 @@ func modelsFromUpstream(upstream []upstreamModel) []modelMetadata {
 			efforts = append([]string{"none"}, efforts...)
 		}
 		for _, effort := range efforts {
+			variantID := model.Slug + "-" + effort
+			if realSlugs[variantID] {
+				continue
+			}
 			variant := base
-			variant.ID = model.Slug + "-" + effort
+			variant.ID = variantID
 			variant.Name = base.Name + " (" + effort + " reasoning)"
 			models = append(models, variant)
 		}
