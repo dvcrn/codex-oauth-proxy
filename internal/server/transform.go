@@ -281,7 +281,7 @@ func normalizeModel(model string) string {
 	// Exact matches on currently-served models first, so a valid ID is never
 	// rewritten by the looser prefix matching below.
 	switch lower {
-	case modelGPT53Spark, modelGPT54Mini, modelGPT55, modelGPT5Sol, modelGPT5Terra, modelGPT5Luna, modelGPT6Astra, modelDaybreakBlue:
+	case modelGPT53Spark, modelGPT54Mini, modelGPT55, modelGPT5Sol, modelGPT5Terra, modelGPT5Luna, modelGPT6Astra, modelGPT6Sol, modelGPT6Luna, modelDaybreakBlue:
 		return lower
 	}
 

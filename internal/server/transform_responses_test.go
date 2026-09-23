@@ -105,6 +105,23 @@ func containsSubstring(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
 
+func TestTransformResponsesRequestBodyGPT6Models(t *testing.T) {
+	for _, model := range []string{modelGPT6Sol, modelGPT6Luna} {
+		t.Run(model, func(t *testing.T) {
+			body := map[string]interface{}{
+				"model": model + "-max",
+				"input": []interface{}{map[string]interface{}{
+					"role": "user", "content": "Reply OK.",
+				}},
+			}
+			gotModel, gotEffort := transformResponsesRequestBody(body, model+"-max", "max")
+			if gotModel != model || body["model"] != model || gotEffort != "max" {
+				t.Fatalf("model=%q body.model=%v effort=%q, want %q and max", gotModel, body["model"], gotEffort, model)
+			}
+		})
+	}
+}
+
 func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T) {
 	// Mini codex should clamp low effort to medium and default to medium when
 	// no explicit effort is provided.

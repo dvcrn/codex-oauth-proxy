@@ -53,6 +53,38 @@ func TestModelsFromUpstreamIncludesBaseAndSuffixVariants(t *testing.T) {
 	}
 }
 
+func TestModelsFromUpstreamIncludesGPT6Variants(t *testing.T) {
+	upstream := []upstreamModel{
+		{Slug: modelGPT6Sol, DisplayName: "GPT-6 Sol"},
+		{Slug: modelGPT6Luna, DisplayName: "GPT-6 Luna"},
+	}
+	for i := range upstream {
+		upstream[i].SupportedReasoningLevel = []struct {
+			Effort string `json:"effort"`
+		}{{Effort: "low"}, {Effort: "medium"}, {Effort: "high"}, {Effort: "xhigh"}, {Effort: "max"}}
+	}
+	upstream[0].SupportedReasoningLevel = append(upstream[0].SupportedReasoningLevel, struct {
+		Effort string `json:"effort"`
+	}{Effort: "ultra"})
+
+	seen := make(map[string]bool)
+	for _, model := range modelsFromUpstream(upstream) {
+		seen[model.ID] = true
+	}
+	for _, base := range []string{modelGPT6Sol, modelGPT6Luna} {
+		for _, suffix := range []string{"", "-low", "-medium", "-high", "-xhigh", "-max"} {
+			if !seen[base+suffix] {
+				t.Errorf("expected %q to be advertised", base+suffix)
+			}
+		}
+		for _, suffix := range []string{"-none", "-ultra"} {
+			if seen[base+suffix] {
+				t.Errorf("unexpected %q in model listing", base+suffix)
+			}
+		}
+	}
+}
+
 func TestModelsFromUpstreamDoesNotAdvertiseUnsupportedNoneVariant(t *testing.T) {
 	models := modelsFromUpstream([]upstreamModel{
 		{Slug: modelGPT6Astra, DisplayName: "GPT-6-Astra"},

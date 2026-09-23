@@ -153,6 +153,10 @@ func TestNormalizeModel(t *testing.T) {
 		{"gpt-5.6-terra base", "gpt-5.6-terra", "gpt-5.6-terra"},
 		{"gpt-6-astra base", "gpt-6-astra", "gpt-6-astra"},
 		{"gpt-6-astra with max suffix", "gpt-6-astra-max", "gpt-6-astra"},
+		{"gpt-6-sol base", "gpt-6-sol", modelGPT6Sol},
+		{"gpt-6-sol with max suffix", "gpt-6-sol-max", modelGPT6Sol},
+		{"gpt-6-luna base", "gpt-6-luna", modelGPT6Luna},
+		{"gpt-6-luna with high suffix", "gpt-6-luna-high", modelGPT6Luna},
 		{"gpt-5.3-codex-spark base", "gpt-5.3-codex-spark", "gpt-5.3-codex-spark"},
 		{"gpt-5.6-luna base", "gpt-5.6-luna", "gpt-5.6-luna"},
 		{"daybreak blue", "gpt-daybreak-blue-latest", "gpt-daybreak-blue-latest"},
@@ -318,6 +322,12 @@ func TestClampReasoningEffortForModel(t *testing.T) {
 		{"gpt-5.6-luna allows max", modelGPT5Luna, "max", "max"},
 		{"gpt-5.6-terra rejects wire-unsupported ultra -> default", modelGPT5Terra, "ultra", "medium"},
 		{"gpt-6-astra rejects none -> default", modelGPT6Astra, "none", "medium"},
+		{"gpt-6-sol defaults to medium", modelGPT6Sol, "", "medium"},
+		{"gpt-6-sol allows max", modelGPT6Sol, "max", "max"},
+		{"gpt-6-sol rejects ultra -> default", modelGPT6Sol, "ultra", "medium"},
+		{"gpt-6-luna defaults to medium", modelGPT6Luna, "", "medium"},
+		{"gpt-6-luna rejects none -> default", modelGPT6Luna, "none", "medium"},
+		{"gpt-6-luna allows xhigh", modelGPT6Luna, "xhigh", "xhigh"},
 		{"gpt-5.3-codex-spark rejects none -> default", modelGPT53Spark, "none", "high"},
 	}
 
