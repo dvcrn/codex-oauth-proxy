@@ -18,7 +18,7 @@ ENV = "production"
 
 
 [build]
-command = "just build-worker"
+command = "mise run build-worker"
 
 [observability.logs]
 enabled = true
