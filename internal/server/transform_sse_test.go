@@ -6,6 +6,17 @@ import (
 	"testing"
 )
 
+func TestPassThroughSSEStreamPreservesResponsesEvents(t *testing.T) {
+	src := "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\"}\n\n"
+	var dst bytes.Buffer
+	if err := PassThroughSSEStream(strings.NewReader(src), &dst); err != nil {
+		t.Fatal(err)
+	}
+	if got := dst.String(); got != src {
+		t.Fatalf("stream changed:\n got %q\nwant %q", got, src)
+	}
+}
+
 func TestTransformSSELine_PassThroughChunk(t *testing.T) {
 	// A minimal chunk similar to captured responses
 	in := []byte(`{"id":"chatcmpl-xyz","object":"chat.completion.chunk","created":1754642367,"model":"gpt-4.1-2025-04-14","choices":[{"index":0,"delta":{"content":"Hello"},"logprobs":null,"finish_reason":null}]}`)

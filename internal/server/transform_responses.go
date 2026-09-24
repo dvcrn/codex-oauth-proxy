@@ -11,6 +11,9 @@ func transformResponsesRequestBody(body map[string]interface{}, requestedModel s
 	// Responses must always disable server-side store per upstream requirements
 	body["store"] = false
 
+	// The Codex backend only accepts streaming requests; the handler buffers SSE for non-streaming clients.
+	body["stream"] = true
+
 	if tier := resolveServiceTier(body); tier != "" {
 		body["service_tier"] = tier
 	} else {

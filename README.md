@@ -97,6 +97,8 @@ codex-oauth-proxy --creds-store=legacy
 
 The model list comes from the Codex backend. Query `/v1/models` instead of hard-coding model IDs. Clients that cannot set reasoning effort separately can append a suffix such as `-low`, `-medium`, `-high`, `-xhigh`, or `-max` when supported by that model.
 
+`/v1/responses` returns a JSON Response when `stream` is omitted or `false`; set `stream: true` to receive SSE events.
+
 ## MCP clients
 
 The `/mcp` endpoint lets MCP clients use your Codex account through two tools. It uses stateless streamable HTTP with JSON responses, so the server keeps no conversation or session state between calls.

@@ -1366,61 +1366,6 @@ func RewriteSSEStreamWithCallback(r io.Reader, w io.Writer, model string, onEven
 // PassThroughSSEStream copies upstream SSE events directly to the downstream writer
 // without any transformation.
 func PassThroughSSEStream(r io.Reader, w io.Writer) error {
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-	var dataLines [][]byte
-	flushEvent := func() error {
-		if len(dataLines) == 0 {
-			return nil
-		}
-		raw := bytes.Join(dataLines, []byte("\n"))
-		dataLines = dataLines[:0]
-
-		if bytes.Equal(bytes.TrimSpace(raw), []byte("[DONE]")) {
-			if _, err := w.Write([]byte("data: [DONE]\n\n")); err != nil {
-				return err
-			}
-			return nil
-		}
-
-		if len(raw) > 0 {
-			if _, err := w.Write([]byte("data: ")); err != nil {
-				return err
-			}
-			if _, err := w.Write(raw); err != nil {
-				return err
-			}
-			if _, err := w.Write([]byte("\n\n")); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(bytes.TrimSpace(line)) == 0 {
-			if err := flushEvent(); err != nil {
-				return err
-			}
-			continue
-		}
-		if bytes.HasPrefix(line, []byte(":")) {
-			continue
-		}
-		if bytes.HasPrefix(line, []byte("data:")) {
-			payload := bytes.TrimPrefix(line, []byte("data:"))
-			// SSE spec allows optional single space after colon; trim only that
-			if len(payload) > 0 && payload[0] == ' ' {
-				payload = payload[1:]
-			}
-			cp := make([]byte, len(payload))
-			copy(cp, payload)
-			dataLines = append(dataLines, cp)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-	return flushEvent()
+	_, err := io.Copy(w, r)
+	return err
 }

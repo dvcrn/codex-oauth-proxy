@@ -310,14 +310,14 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 
 	// If the client requested streaming, reuse the existing SSE rewriting path.
 	if stream {
-		s.writeResponse(w, responseData, statusCode, normalizedModel, true)
+		s.writeResponse(w, responseData, statusCode, normalizedModel, true, false)
 		return
 	}
 
 	// Non-streaming path: buffer the upstream SSE stream and synthesize a single
 	// chat completion response for clients that expect the classic JSON shape.
 	if statusCode != http.StatusOK {
-		s.writeResponse(w, responseData, statusCode, normalizedModel, false)
+		s.writeResponse(w, responseData, statusCode, normalizedModel, false, false)
 		return
 	}
 
@@ -363,6 +363,8 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 	if input, ok := requestData["input"].([]interface{}); ok {
 		inputCount = len(input)
 	}
+
+	clientStream, _ := requestData["stream"].(bool)
 
 	// Transform request body
 	normalizedModel, normalizedEffort := transformResponsesRequestBody(requestData, requestedModel, requestedEffort)
@@ -447,7 +449,22 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 			Msg("Upstream error encountered for responses request")
 	}
 
-	s.writeResponse(w, responseData, statusCode, normalizedModel, false)
+	if statusCode != http.StatusOK || clientStream {
+		s.writeResponse(w, responseData, statusCode, normalizedModel, false, true)
+		return
+	}
+
+	defer responseData.Body.Close()
+	result, err := bufferResponsesFromSSE(responseData.Body)
+	if err != nil {
+		s.logger.Error().Err(err).Msg("Error buffering Responses SSE stream")
+		http.Error(w, "Failed to process upstream response", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if _, err := w.Write(result); err != nil {
+		s.logger.Error().Err(err).Msg("Error writing buffered Responses response")
+	}
 }
 
 func previewResponseBody(resp *http.Response) string {
@@ -613,7 +630,7 @@ func (s *Server) makeChatGPTRequestWithRetry(r *http.Request, url string, body [
 	return resp, statusCode, nil
 }
 
-func (s *Server) writeResponse(w http.ResponseWriter, resp *http.Response, statusCode int, model string, convertSSE bool) {
+func (s *Server) writeResponse(w http.ResponseWriter, resp *http.Response, statusCode int, model string, convertSSE bool, responsesSSE bool) {
 	defer resp.Body.Close()
 
 	// Log the response from upstream
@@ -666,7 +683,7 @@ func (s *Server) writeResponse(w http.ResponseWriter, resp *http.Response, statu
 		}
 
 		// Detect streaming responses (handle charset variations)
-		isStreaming := mediaType == "text/event-stream"
+		isStreaming := responsesSSE || mediaType == "text/event-stream"
 		if isStreaming {
 			w.Header().Del("Content-Length")
 			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -717,8 +734,44 @@ func (s *Server) writeResponse(w http.ResponseWriter, resp *http.Response, statu
 				return
 			}
 		} else {
-			if err := PassThroughSSEStream(resp.Body, out); err != nil {
-				s.logger.Error().Err(err).Msg(fmt.Sprintf("Error streaming SSE response: %v", err))
+			var input io.Reader = resp.Body
+			var stats *responsesSSEStats
+			if responsesSSE {
+				stats = &responsesSSEStats{}
+				input = io.TeeReader(input, stats)
+			}
+			var err error
+			repaired := false
+			if responsesSSE {
+				repaired, err = CompleteResponsesSSEStream(input, out)
+			} else {
+				err = PassThroughSSEStream(input, out)
+			}
+			if stats != nil {
+				s.logger.Info().
+					Int64("bytes", stats.bytes).
+					Bool("final_output_repaired", repaired).
+					Int("data_lines", stats.dataLines).
+					Int("text_deltas", stats.textDeltas).
+					Int("delta_chars", stats.deltaChars).
+					Int("reasoning_deltas", stats.reasoningDeltas).
+					Int("output_items", stats.outputItems).
+					Int("function_calls", stats.functionCalls).
+					Int("completed", stats.completed).
+					Bool("final_parsed", stats.finalParsed).
+					Bool("final_completed", stats.finalCompleted).
+					Int("final_messages", stats.finalMessages).
+					Int("final_text_chars", stats.finalTextChars).
+					Int("final_reasoning", stats.finalReasoning).
+					Int("final_functions", stats.finalFunctions).
+					Int("final_other", stats.finalOther).
+					Int("failed", stats.failed).
+					Int("stream_errors", stats.streamErrors).
+					Err(err).
+					Msg("Responses SSE stream summary")
+			}
+			if err != nil {
+				s.logger.Error().Err(err).Msg("Error streaming SSE response")
 				return
 			}
 		}
