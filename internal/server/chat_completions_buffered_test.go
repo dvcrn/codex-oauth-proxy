@@ -84,6 +84,9 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 			require.Len(t, response.Choices, 1)
 			assert.Equal(t, 0, response.Choices[0].Index)
 			assert.Equal(t, tc.finish, response.Choices[0].FinishReason)
+			if tc.finish == "stop" {
+				assert.Nil(t, response.Choices[0].Message.ToolCalls, "text-only replies should leave tool calls nil")
+			}
 			message, err := json.Marshal(response.Choices[0].Message)
 			require.NoError(t, err)
 			assert.JSONEq(t, tc.message, string(message))

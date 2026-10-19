@@ -197,17 +197,20 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 		finishReason = "stop"
 	}
 
-	// Keep the tool-call order stable even when argument deltas are interleaved.
-	toolIndexes := make([]int, 0, len(bufferedToolCalls))
-	for index := range bufferedToolCalls {
-		toolIndexes = append(toolIndexes, index)
-	}
-	sort.Ints(toolIndexes)
-	toolCalls := make([]ChatToolCall, 0, len(toolIndexes))
-	for _, index := range toolIndexes {
-		tool := bufferedToolCalls[index]
-		tool.call.Function.Arguments = tool.arguments.String()
-		toolCalls = append(toolCalls, tool.call)
+	var toolCalls []ChatToolCall
+	if len(bufferedToolCalls) > 0 {
+		// Keep the tool-call order stable even when argument deltas are interleaved.
+		toolIndexes := make([]int, 0, len(bufferedToolCalls))
+		for index := range bufferedToolCalls {
+			toolIndexes = append(toolIndexes, index)
+		}
+		sort.Ints(toolIndexes)
+		toolCalls = make([]ChatToolCall, 0, len(toolIndexes))
+		for _, index := range toolIndexes {
+			tool := bufferedToolCalls[index]
+			tool.call.Function.Arguments = tool.arguments.String()
+			toolCalls = append(toolCalls, tool.call)
+		}
 	}
 
 	resp := &ChatCompletionResponse{
