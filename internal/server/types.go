@@ -2,9 +2,21 @@ package server
 
 import "encoding/json"
 
+type ChatFunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type ChatToolCall struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function ChatFunctionCall `json:"function"`
+}
+
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string         `json:"role"`
+	Content   string         `json:"content"`
+	ToolCalls []ChatToolCall `json:"tool_calls,omitempty"`
 }
 
 type ChatCompletionRequest struct {
