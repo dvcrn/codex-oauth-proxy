@@ -94,6 +94,35 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 	}
 }
 
+func TestBufferChatCompletionFromSSERejectsUnfinishedToolCalls(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		terminal string
+	}{
+		{
+			name:     "failed response",
+			terminal: `{"type":"response.failed","sequence_number":20,"response":{"id":"resp_buffered","status":"failed","error":{"code":"server_error","message":"model failure"}}}`,
+		},
+		{
+			name:     "incomplete response",
+			terminal: `{"type":"response.incomplete","sequence_number":20,"response":{"id":"resp_buffered","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}`,
+		},
+		{name: "EOF without response completion"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Individual calls are complete, but the overall generation is not.
+			stream, _, found := strings.Cut(bufferedToolCallTestStream(), `data: {"type":"response.completed"`)
+			require.True(t, found)
+			if tc.terminal != "" {
+				stream += "data: " + tc.terminal + "\n\ndata: [DONE]\n\n"
+			}
+			response, err := bufferChatCompletionFromSSE(strings.NewReader(stream), "gpt-5")
+			require.ErrorContains(t, err, "upstream response ended before tool calls completed")
+			assert.Nil(t, response, "unsuccessful generations must not publish executable calls")
+		})
+	}
+}
+
 func TestChatCompletionsHandlerNonStreamingToolRoundTrip(t *testing.T) {
 	for _, explicitStream := range []bool{false, true} {
 		name := "stream omitted"

@@ -180,6 +180,11 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 		return nil, err
 	}
 
+	// A failed or truncated generation must not publish executable tool calls.
+	if len(bufferedToolCalls) > 0 && finishReason != "tool_calls" {
+		return nil, fmt.Errorf("upstream response ended before tool calls completed")
+	}
+
 	// Construct a non-streaming ChatCompletionResponse.
 	if responseID == "" {
 		responseID = "chatcmpl-buffered"
