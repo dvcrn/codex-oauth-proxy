@@ -5,7 +5,7 @@ package server
 // upstream requests and as the client_version query parameter when listing
 // models; the backend gates both model availability and protocol features on
 // it, so the two must stay in sync.
-const codexClientVersion = "0.156.0"
+const codexClientVersion = "0.163.0"
 
 // Models currently served by the ChatGPT Codex backend. The authoritative list
 // is the /backend-api/codex/models endpoint; these constants exist for request
@@ -19,6 +19,7 @@ const (
 	modelGPT5Luna     = "gpt-5.6-luna"
 	modelGPT6Astra    = "gpt-6-astra"
 	modelGPT6Sol      = "gpt-6-sol"
+	modelGPT61Sol     = "gpt-6.1-sol"
 	modelGPT6Luna     = "gpt-6-luna"
 	modelDaybreakBlue = "gpt-daybreak-blue-latest"
 
@@ -39,6 +40,7 @@ var modelAllowedEfforts = map[string][]string{
 	modelGPT5Luna:     {"none", "low", "medium", "high", "xhigh", "max"},
 	modelGPT6Astra:    {"low", "medium", "high", "xhigh", "max"},
 	modelGPT6Sol:      {"low", "medium", "high", "xhigh", "max"},
+	modelGPT61Sol:     {"low", "medium", "high", "xhigh", "max"},
 	modelGPT6Luna:     {"low", "medium", "high", "xhigh", "max"},
 	modelDaybreakBlue: {"none", "low", "medium", "high", "xhigh", "max"},
 }
@@ -54,6 +56,7 @@ var modelDefaultEffort = map[string]string{
 	modelGPT5Luna:     "medium",
 	modelGPT6Astra:    "medium",
 	modelGPT6Sol:      "medium",
+	modelGPT61Sol:     "low",
 	modelGPT6Luna:     "medium",
 	modelDaybreakBlue: "low",
 }
