@@ -57,7 +57,7 @@ func TestModelsFromUpstreamIncludesGPT6Variants(t *testing.T) {
 	upstream := []upstreamModel{
 		{Slug: modelGPT6Sol, DisplayName: "GPT-6 Sol"},
 		{Slug: modelGPT6Luna, DisplayName: "GPT-6 Luna"},
-		{Slug: "gpt-6.1-sol", DisplayName: "GPT-6.1 Sol"},
+		{Slug: modelGPT61Sol, DisplayName: "GPT-6.1 Sol"},
 	}
 	for i := range upstream {
 		upstream[i].SupportedReasoningLevel = []struct {
@@ -72,7 +72,7 @@ func TestModelsFromUpstreamIncludesGPT6Variants(t *testing.T) {
 	for _, model := range modelsFromUpstream(upstream) {
 		seen[model.ID] = true
 	}
-	for _, base := range []string{modelGPT6Sol, modelGPT6Luna, "gpt-6.1-sol"} {
+	for _, base := range []string{modelGPT6Sol, modelGPT6Luna, modelGPT61Sol} {
 		for _, suffix := range []string{"", "-low", "-medium", "-high", "-xhigh", "-max"} {
 			if !seen[base+suffix] {
 				t.Errorf("expected %q to be advertised", base+suffix)
