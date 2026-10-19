@@ -106,7 +106,7 @@ func containsSubstring(s, substr string) bool {
 }
 
 func TestTransformResponsesRequestBodyGPT6Models(t *testing.T) {
-	for _, model := range []string{modelGPT6Sol, modelGPT6Luna} {
+	for _, model := range []string{modelGPT6Sol, modelGPT6Luna, "gpt-6.1-sol"} {
 		t.Run(model, func(t *testing.T) {
 			body := map[string]interface{}{
 				"model": model + "-max",
