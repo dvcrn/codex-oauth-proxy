@@ -141,15 +141,8 @@ func TestBufferChatCompletionFromSSERejectsUnfinishedToolCalls(t *testing.T) {
 		name     string
 		terminal string
 	}{
-		{
-			name:     "failed response",
-			terminal: `{"type":"response.failed","sequence_number":20,"response":{"id":"resp_buffered","status":"failed","error":{"code":"server_error","message":"model failure"}}}`,
-		},
-		{
-			name:     "incomplete response",
-			terminal: `{"type":"response.incomplete","sequence_number":20,"response":{"id":"resp_buffered","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}`,
-		},
 		{name: "EOF without response completion"},
+		{name: "DONE without response completion", terminal: "[DONE]"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Individual calls are complete, but the overall generation is not.

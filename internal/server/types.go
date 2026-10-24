@@ -80,13 +80,30 @@ type bufferedCodexEvent struct {
 	Arguments *string                `json:"arguments"`
 	Item      *bufferedCodexItem     `json:"item"`
 	Response  *bufferedCodexResponse `json:"response"`
+	Error     *bufferedUpstreamError `json:"error"`
+	Code      string                 `json:"code"`
+	Message   string                 `json:"message"`
+	Param     *string                `json:"param"`
 }
 
 type bufferedCodexResponse struct {
-	ID        string              `json:"id"`
-	Model     string              `json:"model"`
-	CreatedAt float64             `json:"created_at"`
-	Output    []bufferedCodexItem `json:"output"`
+	ID                string                     `json:"id"`
+	Model             string                     `json:"model"`
+	CreatedAt         float64                    `json:"created_at"`
+	Output            []bufferedCodexItem        `json:"output"`
+	Error             *bufferedUpstreamError     `json:"error"`
+	IncompleteDetails *bufferedIncompleteDetails `json:"incomplete_details"`
+}
+
+type bufferedIncompleteDetails struct {
+	Reason string `json:"reason"`
+}
+
+type bufferedUpstreamError struct {
+	Code    string  `json:"code"`
+	Message string  `json:"message"`
+	Type    string  `json:"type"`
+	Param   *string `json:"param"`
 }
 
 type bufferedCodexItem struct {
@@ -109,11 +126,13 @@ type bufferedToolCall struct {
 }
 
 type bufferedChatCompletion struct {
-	responseID string
-	model      string
-	created    int64
-	content    bytes.Buffer
-	tools      []bufferedToolCall
-	toolIndex  map[string]int
-	terminal   string
+	responseID   string
+	model        string
+	created      int64
+	content      bytes.Buffer
+	tools        []bufferedToolCall
+	toolIndex    map[string]int
+	terminal     string
+	finishReason string
+	upstreamErr  *bufferedUpstreamError
 }

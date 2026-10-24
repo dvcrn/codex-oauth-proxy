@@ -73,6 +73,9 @@ scanLoop:
 	if err := flushEvent(); err != nil {
 		return nil, err
 	}
+	if state.upstreamErr != nil {
+		return nil, state.upstreamErr
+	}
 	// Individual calls can be complete even when the overall generation failed.
 	if len(state.tools) > 0 && state.terminal != "response.completed" {
 		return nil, fmt.Errorf("upstream response ended before tool calls completed")
@@ -108,30 +111,92 @@ func (b *bufferedChatCompletion) applyEvent(event bufferedCodexEvent) {
 			b.tools[index].arguments.Reset()
 			b.tools[index].arguments.WriteString(*event.Arguments)
 		}
-	case "response.completed":
+	case "response.completed", "response.incomplete":
 		b.terminal = event.Type
-		// Some Codex streams omit the final output array. Otherwise the final
-		// snapshot is authoritative, not something to append to the deltas.
-		if event.Response != nil && len(event.Response.Output) > 0 {
-			b.content.Reset()
+		if event.Response != nil {
+			b.applyOutput(event.Response.Output)
+			if event.Response.Error != nil {
+				b.upstreamErr = normalizeBufferedUpstreamError(event.Response.Error)
+				return
+			}
+		}
+		if event.Type == "response.incomplete" {
+			// Preserve partial text, but never publish calls from an incomplete
+			// generation, even when individual calls have already finished.
 			b.tools = nil
 			b.toolIndex = nil
-			for _, item := range event.Response.Output {
-				switch item.Type {
-				case "function_call":
-					b.applyToolItem(item)
-				case "message":
-					for _, part := range item.Content {
-						if part.Type == "output_text" {
-							b.content.WriteString(part.Text)
-						}
-					}
+			reason := "incomplete"
+			if event.Response != nil && event.Response.IncompleteDetails != nil && event.Response.IncompleteDetails.Reason != "" {
+				reason = event.Response.IncompleteDetails.Reason
+			}
+			switch reason {
+			case "max_output_tokens":
+				b.finishReason = "length"
+			case "content_filter":
+				b.finishReason = "content_filter"
+			default:
+				b.upstreamErr = normalizeBufferedUpstreamError(&bufferedUpstreamError{Code: reason, Message: "upstream response incomplete: " + reason})
+			}
+		}
+	case "response.failed", "error":
+		b.terminal = event.Type
+		detail := event.Error
+		if event.Response != nil && event.Response.Error != nil {
+			detail = event.Response.Error
+		}
+		if detail == nil {
+			detail = &bufferedUpstreamError{Code: event.Code, Message: event.Message, Param: event.Param}
+		}
+		b.upstreamErr = normalizeBufferedUpstreamError(detail)
+	}
+}
+
+func (b *bufferedChatCompletion) applyOutput(output []bufferedCodexItem) {
+	// Some Codex streams omit the final output array. Otherwise the final
+	// snapshot is authoritative, not something to append to the deltas.
+	if len(output) == 0 {
+		return
+	}
+	b.content.Reset()
+	b.tools = nil
+	b.toolIndex = nil
+	for _, item := range output {
+		switch item.Type {
+		case "function_call":
+			b.applyToolItem(item)
+		case "message":
+			for _, part := range item.Content {
+				if part.Type == "output_text" {
+					b.content.WriteString(part.Text)
 				}
 			}
 		}
-	case "response.failed", "response.incomplete", "error":
-		b.terminal = event.Type
 	}
+}
+
+func (e *bufferedUpstreamError) Error() string {
+	return e.Code + ": " + e.Message
+}
+
+func normalizeBufferedUpstreamError(detail *bufferedUpstreamError) *bufferedUpstreamError {
+	result := *detail
+	if result.Code == "" {
+		result.Code = "upstream_error"
+	}
+	if result.Message == "" {
+		result.Message = "upstream response failed"
+	}
+	if result.Type == "" {
+		switch result.Code {
+		case "context_length_exceeded":
+			result.Type = "invalid_request_error"
+		case "rate_limit_exceeded":
+			result.Type = "rate_limit_error"
+		default:
+			result.Type = "server_error"
+		}
+	}
+	return &result
 }
 
 func (b *bufferedChatCompletion) applyToolItem(item bufferedCodexItem) {
@@ -167,7 +232,10 @@ func (b *bufferedChatCompletion) completion() *ChatCompletionResponse {
 	if b.created == 0 {
 		b.created = time.Now().Unix()
 	}
-	finishReason := "stop"
+	finishReason := b.finishReason
+	if finishReason == "" {
+		finishReason = "stop"
+	}
 	var toolCalls []ChatToolCall
 	if len(b.tools) > 0 {
 		finishReason = "tool_calls"

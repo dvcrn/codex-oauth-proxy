@@ -325,6 +325,22 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 	respObj, err := bufferChatCompletionFromSSE(responseData.Body, normalizedModel)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Error buffering SSE stream for non-streaming client")
+		var upstreamErr *bufferedUpstreamError
+		if errors.As(err, &upstreamErr) {
+			status := http.StatusInternalServerError
+			switch {
+			case upstreamErr.Code == "context_length_exceeded" || upstreamErr.Type == "invalid_request_error":
+				status = http.StatusBadRequest
+			case upstreamErr.Code == "rate_limit_exceeded" || upstreamErr.Type == "rate_limit_error":
+				status = http.StatusTooManyRequests
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{"error": upstreamErr}); err != nil {
+				s.logger.Error().Err(err).Msg("Error encoding upstream error")
+			}
+			return
+		}
 		http.Error(w, "Failed to process streaming response", http.StatusInternalServerError)
 		return
 	}
