@@ -14,14 +14,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func bufferedChatTestStream(events ...string) string {
+const bufferedChatCompleted = `{"type":"response.completed","sequence_number":20}`
+
+func bufferedChatTestStream(terminal string, events ...string) string {
 	events = append([]string{`{"type":"response.created","sequence_number":1,"response":{"id":"resp_buffered"}}`}, events...)
-	events = append(events, `{"type":"response.completed","sequence_number":20}`, "[DONE]")
+	if terminal != "" {
+		events = append(events, terminal, "[DONE]")
+	}
 	return "data: " + strings.Join(events, "\n\ndata: ") + "\n\n"
 }
 
-func bufferedToolCallTestStream() string {
-	return bufferedChatTestStream(
+func bufferedToolCallTestStream(terminal string) string {
+	return bufferedChatTestStream(terminal,
 		`{"type":"response.output_item.added","sequence_number":2,"output_index":1,"item":{"id":"fc_sum","type":"function_call","call_id":"call_sum","name":"sum_two_numbers","arguments":""}}`,
 		`{"type":"response.function_call_arguments.delta","sequence_number":3,"item_id":"fc_sum","output_index":1,"delta":"{\"a\":1,"}`,
 		`{"type":"response.function_call_arguments.delta","sequence_number":4,"item_id":"fc_sum","output_index":1,"delta":"\"b\":2}"}`,
@@ -39,7 +43,7 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 	}{
 		{
 			name: "text only omits tool_calls",
-			stream: bufferedChatTestStream(
+			stream: bufferedChatTestStream(bufferedChatCompleted,
 				`{"type":"response.output_text.delta","sequence_number":2,"delta":"Hello"}`,
 				`{"type":"response.output_text.delta","sequence_number":3,"delta":"\n world"}`,
 			),
@@ -48,13 +52,13 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 		},
 		{
 			name:    "tool call with fragmented arguments",
-			stream:  bufferedToolCallTestStream(),
+			stream:  bufferedToolCallTestStream(bufferedChatCompleted),
 			message: `{"role":"assistant","content":"","tool_calls":[{"id":"call_sum","type":"function","function":{"name":"sum_two_numbers","arguments":"{\"a\":1,\"b\":2}"}}]}`,
 			finish:  "tool_calls",
 		},
 		{
 			name: "text and interleaved tool calls",
-			stream: bufferedChatTestStream(
+			stream: bufferedChatTestStream(bufferedChatCompleted,
 				`{"type":"response.output_text.delta","sequence_number":2,"delta":"Checking both."}`,
 				`{"type":"response.output_item.added","sequence_number":3,"output_index":2,"item":{"id":"fc_sum","type":"function_call","call_id":"call_sum","name":"sum_two_numbers","arguments":""}}`,
 				`{"type":"response.function_call_arguments.delta","sequence_number":4,"item_id":"fc_sum","output_index":2,"delta":"{\"a\":1,"}`,
@@ -68,7 +72,7 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 		},
 		{
 			name: "tool call without argument deltas",
-			stream: bufferedChatTestStream(
+			stream: bufferedChatTestStream(bufferedChatCompleted,
 				`{"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"id":"fc_ping","type":"function_call","call_id":"call_ping","name":"ping","arguments":""}}`,
 			),
 			message: `{"role":"assistant","content":"","tool_calls":[{"id":"call_ping","type":"function","function":{"name":"ping","arguments":""}}]}`,
@@ -111,11 +115,7 @@ func TestBufferChatCompletionFromSSERejectsUnfinishedToolCalls(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Individual calls are complete, but the overall generation is not.
-			stream, _, found := strings.Cut(bufferedToolCallTestStream(), `data: {"type":"response.completed"`)
-			require.True(t, found)
-			if tc.terminal != "" {
-				stream += "data: " + tc.terminal + "\n\ndata: [DONE]\n\n"
-			}
+			stream := bufferedToolCallTestStream(tc.terminal)
 			response, err := bufferChatCompletionFromSSE(strings.NewReader(stream), "gpt-5")
 			require.ErrorContains(t, err, "upstream response ended before tool calls completed")
 			assert.Nil(t, response, "unsuccessful generations must not publish executable calls")
@@ -137,7 +137,7 @@ func TestChatCompletionsHandlerNonStreamingToolRoundTrip(t *testing.T) {
 				var outbound map[string]interface{}
 				require.NoError(t, json.NewDecoder(r.Body).Decode(&outbound))
 				assert.Equal(t, true, outbound["stream"], "Codex upstream must still receive streaming requests")
-				body := bufferedToolCallTestStream()
+				body := bufferedToolCallTestStream(bufferedChatCompleted)
 				if calls == 2 {
 					input, ok := outbound["input"].([]interface{})
 					require.True(t, ok)
@@ -152,7 +152,7 @@ func TestChatCompletionsHandlerNonStreamingToolRoundTrip(t *testing.T) {
 					historyJSON, err := json.Marshal(toolHistory)
 					require.NoError(t, err)
 					assert.JSONEq(t, `[{"type":"function_call","call_id":"call_sum","name":"sum_two_numbers","arguments":"{\"a\":1,\"b\":2}"},{"type":"function_call_output","call_id":"call_sum","output":"3"}]`, string(historyJSON))
-					body = bufferedChatTestStream(`{"type":"response.output_text.delta","sequence_number":2,"delta":"3"}`)
+					body = bufferedChatTestStream(bufferedChatCompleted, `{"type":"response.output_text.delta","sequence_number":2,"delta":"3"}`)
 				}
 				return &http.Response{
 					StatusCode: http.StatusOK,
