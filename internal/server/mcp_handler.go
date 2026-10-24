@@ -247,7 +247,9 @@ func extractCompletionText(completion *ChatCompletionResponse) string {
 
 	var b strings.Builder
 	for _, choice := range completion.Choices {
-		b.WriteString(choice.Message.Content)
+		if choice.Message.Content != nil {
+			b.WriteString(*choice.Message.Content)
+		}
 	}
 	return b.String()
 }

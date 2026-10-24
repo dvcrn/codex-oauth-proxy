@@ -42,6 +42,12 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 		finish  string
 	}{
 		{
+			name:    "empty text remains an empty string",
+			stream:  bufferedChatTestStream(bufferedChatCompleted),
+			message: `{"role":"assistant","content":""}`,
+			finish:  "stop",
+		},
+		{
 			name: "text only omits tool_calls",
 			stream: bufferedChatTestStream(bufferedChatCompleted,
 				`{"type":"response.output_text.delta","sequence_number":2,"delta":"Hello"}`,
@@ -53,7 +59,7 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 		{
 			name:    "tool call with fragmented arguments",
 			stream:  bufferedToolCallTestStream(bufferedChatCompleted),
-			message: `{"role":"assistant","content":"","tool_calls":[{"id":"call_sum","type":"function","function":{"name":"sum_two_numbers","arguments":"{\"a\":1,\"b\":2}"}}]}`,
+			message: `{"role":"assistant","content":null,"tool_calls":[{"id":"call_sum","type":"function","function":{"name":"sum_two_numbers","arguments":"{\"a\":1,\"b\":2}"}}]}`,
 			finish:  "tool_calls",
 		},
 		{
@@ -76,7 +82,7 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 				`{"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"id":"fc_ping","type":"function_call","call_id":"call_ping","name":"ping","arguments":""}}`,
 				`{"type":"response.function_call_arguments.done","sequence_number":3,"item_id":"fc_ping","arguments":"{}"}`,
 			),
-			message: `{"role":"assistant","content":"","tool_calls":[{"id":"call_ping","type":"function","function":{"name":"ping","arguments":"{}"}}]}`,
+			message: `{"role":"assistant","content":null,"tool_calls":[{"id":"call_ping","type":"function","function":{"name":"ping","arguments":"{}"}}]}`,
 			finish:  "tool_calls",
 		},
 		{
@@ -85,7 +91,7 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 				`{"type":"response.output_item.added","sequence_number":2,"item":{"id":"fc_ping","type":"function_call","call_id":"call_ping","name":"ping","arguments":""}}`,
 				`{"type":"response.output_item.done","sequence_number":3,"item":{"id":"fc_ping","type":"function_call","call_id":"call_ping","name":"ping","arguments":"{}"}}`,
 			),
-			message: `{"role":"assistant","content":"","tool_calls":[{"id":"call_ping","type":"function","function":{"name":"ping","arguments":"{}"}}]}`,
+			message: `{"role":"assistant","content":null,"tool_calls":[{"id":"call_ping","type":"function","function":{"name":"ping","arguments":"{}"}}]}`,
 			finish:  "tool_calls",
 		},
 		{
@@ -96,7 +102,7 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 				`{"type":"response.function_call_arguments.done","item_id":"fc_ping","arguments":"{\"value\":1}"}`,
 				`{"type":"response.output_item.done","item":{"id":"fc_ping","type":"function_call","call_id":"call_ping","name":"ping","arguments":"{\"value\":1}"}}`,
 			),
-			message: `{"role":"assistant","content":"","tool_calls":[{"id":"call_ping","type":"function","function":{"name":"ping","arguments":"{\"value\":1}"}}]}`,
+			message: `{"role":"assistant","content":null,"tool_calls":[{"id":"call_ping","type":"function","function":{"name":"ping","arguments":"{\"value\":1}"}}]}`,
 			finish:  "tool_calls",
 		},
 		{
@@ -113,7 +119,7 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 			stream: bufferedChatTestStream(bufferedChatCompleted,
 				`{"type":"response.output_item.done","item":{"id":"fc_ping","type":"function_call","call_id":"call_ping","name":"ping","arguments":"{}"}}`,
 			),
-			message: `{"role":"assistant","content":"","tool_calls":[{"id":"call_ping","type":"function","function":{"name":"ping","arguments":"{}"}}]}`,
+			message: `{"role":"assistant","content":null,"tool_calls":[{"id":"call_ping","type":"function","function":{"name":"ping","arguments":"{}"}}]}`,
 			finish:  "tool_calls",
 		},
 	} {

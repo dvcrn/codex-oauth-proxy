@@ -18,7 +18,7 @@ type ChatToolCall struct {
 
 type ChatMessage struct {
 	Role      string         `json:"role"`
-	Content   string         `json:"content"`
+	Content   *string        `json:"content"`
 	ToolCalls []ChatToolCall `json:"tool_calls,omitempty"`
 }
 

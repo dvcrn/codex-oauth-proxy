@@ -232,6 +232,11 @@ func (b *bufferedChatCompletion) completion() *ChatCompletionResponse {
 	if b.created == 0 {
 		b.created = time.Now().Unix()
 	}
+	content := b.content.String()
+	var messageContent *string
+	if content != "" || len(b.tools) == 0 {
+		messageContent = &content
+	}
 	finishReason := b.finishReason
 	if finishReason == "" {
 		finishReason = "stop"
@@ -255,7 +260,7 @@ func (b *bufferedChatCompletion) completion() *ChatCompletionResponse {
 			Index: 0,
 			Message: ChatMessage{
 				Role:      "assistant",
-				Content:   b.content.String(),
+				Content:   messageContent,
 				ToolCalls: toolCalls,
 			},
 			FinishReason: finishReason,
