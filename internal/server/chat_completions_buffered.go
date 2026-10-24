@@ -27,15 +27,31 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 			eventType = ""
 			return nil
 		}
-		var event bufferedCodexEvent
-		if err := json.Unmarshal(bytes.Join(dataLines, []byte("\n")), &event); err != nil {
+		raw := bytes.Join(dataLines, []byte("\n"))
+		dataLines = dataLines[:0]
+		var header bufferedCodexEventHeader
+		if err := json.Unmarshal(raw, &header); err != nil {
 			return fmt.Errorf("failed to decode upstream SSE event: %w", err)
 		}
-		dataLines = dataLines[:0]
-		if event.Type == "" {
-			event.Type = eventType
+		if header.Type == "" {
+			header.Type = eventType
 		}
 		eventType = ""
+		// Unrelated events can use different shapes for fields such as delta.
+		// Do not decode them as text/function-call payloads.
+		switch header.Type {
+		case "response.created", "response.output_text.delta",
+			"response.output_item.added", "response.output_item.done",
+			"response.function_call_arguments.delta", "response.function_call_arguments.done",
+			"response.completed", "response.failed", "response.incomplete", "error":
+		default:
+			return nil
+		}
+		var event bufferedCodexEvent
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return fmt.Errorf("failed to decode upstream SSE event: %w", err)
+		}
+		event.Type = header.Type
 		state.applyEvent(event)
 		return nil
 	}

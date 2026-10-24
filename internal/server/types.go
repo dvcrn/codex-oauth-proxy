@@ -73,6 +73,10 @@ type ChatCompletionResponse struct {
 
 // Buffered completions read Codex events directly so final arguments and terminal
 // outcomes are not lost in the streaming Chat Completions representation.
+type bufferedCodexEventHeader struct {
+	Type string `json:"type"`
+}
+
 type bufferedCodexEvent struct {
 	Type      string                 `json:"type"`
 	ItemID    string                 `json:"item_id"`

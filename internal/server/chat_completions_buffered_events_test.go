@@ -15,6 +15,7 @@ func TestBufferChatCompletionFromSSEMetadata(t *testing.T) {
 	assert.Equal(t, "chatcmpl-resp_final", response.ID)
 	assert.Equal(t, "gpt-5.5", response.Model)
 	assert.Equal(t, int64(1760000000), response.Created)
+	assert.Equal(t, "Final text", extractCompletionText(response))
 	assert.Equal(t, "stop", response.Choices[0].FinishReason)
 	assert.Nil(t, response.Choices[0].Message.ToolCalls)
 }
@@ -51,6 +52,13 @@ func TestBufferChatCompletionFromSSEFraming(t *testing.T) {
 			name: "final event without trailing newline",
 			stream: "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\n" +
 				"data: " + bufferedChatCompleted,
+		},
+		{
+			name: "ignore unrelated event payload shapes",
+			stream: bufferedChatTestStream(bufferedChatCompleted,
+				`{"type":"response.future_event","delta":{"value":"ignored"},"item":[1,2]}`,
+				`{"type":"response.output_text.delta","delta":"Hello"}`,
+			),
 		},
 		{
 			name: "ignore events after the terminal response",
