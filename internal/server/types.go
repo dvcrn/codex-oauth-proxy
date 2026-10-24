@@ -71,57 +71,10 @@ type ChatCompletionResponse struct {
 	Choices []ChatCompletionChoice `json:"choices"`
 }
 
-// Buffered completions read Codex events directly so final arguments and terminal
-// outcomes are not lost in the streaming Chat Completions representation.
-type bufferedCodexEventHeader struct {
-	Type string `json:"type"`
-}
-
-type bufferedCodexEvent struct {
-	Type      string                 `json:"type"`
-	ItemID    string                 `json:"item_id"`
-	Delta     string                 `json:"delta"`
-	Arguments *string                `json:"arguments"`
-	Item      *bufferedCodexItem     `json:"item"`
-	Response  *bufferedCodexResponse `json:"response"`
-	Error     *bufferedUpstreamError `json:"error"`
-	Code      string                 `json:"code"`
-	Message   string                 `json:"message"`
-	Param     *string                `json:"param"`
-}
-
-type bufferedCodexResponse struct {
-	ID                string                     `json:"id"`
-	Model             string                     `json:"model"`
-	CreatedAt         float64                    `json:"created_at"`
-	Output            []bufferedCodexItem        `json:"output"`
-	Error             *bufferedUpstreamError     `json:"error"`
-	IncompleteDetails *bufferedIncompleteDetails `json:"incomplete_details"`
-}
-
-type bufferedIncompleteDetails struct {
-	Reason string `json:"reason"`
-}
-
-type bufferedUpstreamError struct {
-	Code    string  `json:"code"`
-	Message string  `json:"message"`
-	Type    string  `json:"type"`
-	Param   *string `json:"param"`
-}
-
-type bufferedCodexItem struct {
-	ID        string                 `json:"id"`
-	Type      string                 `json:"type"`
-	CallID    string                 `json:"call_id"`
-	Name      string                 `json:"name"`
-	Arguments *string                `json:"arguments"`
-	Content   []bufferedCodexContent `json:"content"`
-}
-
-type bufferedCodexContent struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+// streamingToolCall identifies which call an incremental update belongs to.
+type streamingToolCall struct {
+	Index int `json:"index"`
+	ChatToolCall
 }
 
 type bufferedToolCall struct {
@@ -129,14 +82,9 @@ type bufferedToolCall struct {
 	arguments bytes.Buffer
 }
 
-type bufferedChatCompletion struct {
-	responseID   string
-	model        string
-	created      int64
-	content      bytes.Buffer
-	tools        []bufferedToolCall
-	toolIndex    map[string]int
-	terminal     string
-	finishReason string
-	upstreamErr  *bufferedUpstreamError
+type bufferedUpstreamError struct {
+	Code    string  `json:"code"`
+	Message string  `json:"message"`
+	Type    string  `json:"type"`
+	Param   *string `json:"param"`
 }

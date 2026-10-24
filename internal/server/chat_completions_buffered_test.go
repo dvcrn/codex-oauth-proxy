@@ -14,7 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const bufferedChatCompleted = `{"type":"response.completed","sequence_number":20}`
+const (
+	bufferedChatCompleted  = `{"type":"response.completed","sequence_number":20}`
+	bufferedChatIncomplete = `{"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"}}}`
+	bufferedChatFailed     = `{"type":"response.failed","response":{"status":"failed","error":{"code":"context_length_exceeded","message":"context limit exceeded","param":"messages"}}}`
+)
 
 func bufferedChatTestStream(terminal string, events ...string) string {
 	events = append([]string{`{"type":"response.created","sequence_number":1,"response":{"id":"resp_buffered"}}`}, events...)
@@ -70,7 +74,7 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 				`{"type":"response.function_call_arguments.delta","sequence_number":4,"item_id":"fc_sum","output_index":2,"delta":"{\"a\":1,"}`,
 				`{"type":"response.output_item.added","sequence_number":5,"output_index":4,"item":{"id":"fc_weather","type":"function_call","call_id":"call_weather","name":"get_weather","arguments":""}}`,
 				`{"type":"response.function_call_arguments.delta","sequence_number":6,"item_id":"fc_weather","output_index":4,"delta":"{\"city\":\"Montr"}`,
-				`{"type":"response.function_call_arguments.delta","sequence_number":7,"item_id":"fc_weather","output_index":4,"delta":"éal\\nNorth\"}"}`,
+				`{"type":"response.function_call_arguments.done","sequence_number":7,"item_id":"fc_weather","output_index":4,"arguments":"{\"city\":\"Montréal\\nNorth\"}"}`,
 				`{"type":"response.function_call_arguments.delta","sequence_number":8,"item_id":"fc_sum","output_index":2,"delta":"\"b\":2}"}`,
 			),
 			message: `{"role":"assistant","content":"Checking both.","tool_calls":[{"id":"call_sum","type":"function","function":{"name":"sum_two_numbers","arguments":"{\"a\":1,\"b\":2}"}},{"id":"call_weather","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Montréal\\nNorth\"}"}}]}`,
@@ -103,23 +107,6 @@ func TestBufferChatCompletionFromSSE(t *testing.T) {
 				`{"type":"response.output_item.done","item":{"id":"fc_ping","type":"function_call","call_id":"call_ping","name":"ping","arguments":"{\"value\":1}"}}`,
 			),
 			message: `{"role":"assistant","content":null,"tool_calls":[{"id":"call_ping","type":"function","function":{"name":"ping","arguments":"{\"value\":1}"}}]}`,
-			finish:  "tool_calls",
-		},
-		{
-			name: "completed response supplies authoritative output",
-			stream: bufferedChatTestStream(
-				`{"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Checking."}]},{"id":"fc_ping","type":"function_call","call_id":"call_ping","name":"ping","arguments":"{}"}]}}`,
-				`{"type":"response.output_text.delta","delta":"Partial text"}`,
-			),
-			message: `{"role":"assistant","content":"Checking.","tool_calls":[{"id":"call_ping","type":"function","function":{"name":"ping","arguments":"{}"}}]}`,
-			finish:  "tool_calls",
-		},
-		{
-			name: "completed item supplies call metadata",
-			stream: bufferedChatTestStream(bufferedChatCompleted,
-				`{"type":"response.output_item.done","item":{"id":"fc_ping","type":"function_call","call_id":"call_ping","name":"ping","arguments":"{}"}}`,
-			),
-			message: `{"role":"assistant","content":null,"tool_calls":[{"id":"call_ping","type":"function","function":{"name":"ping","arguments":"{}"}}]}`,
 			finish:  "tool_calls",
 		},
 	} {
@@ -263,6 +250,182 @@ func TestChatCompletionsHandlerNonStreamingToolRoundTrip(t *testing.T) {
 			assert.Equal(t, "3", finalResponse.Choices[0].Message["content"])
 			assert.NotContains(t, finalResponse.Choices[0].Message, "tool_calls")
 			assert.Equal(t, 2, calls)
+		})
+	}
+}
+
+func TestBufferChatCompletionFromSSEFraming(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		stream string
+	}{
+		{
+			name: "CRLF and comments",
+			stream: ": heartbeat\r\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\r\n\r\n" +
+				"data: " + bufferedChatCompleted + "\r\n\r\n",
+		},
+		{
+			name: "multiline data",
+			stream: "data: {\"type\":\"response.output_text.delta\",\n" +
+				"data: \"delta\":\"Hello\"}\n\n" +
+				"data: " + bufferedChatCompleted + "\n\n",
+		},
+		{
+			name: "final event without trailing newline",
+			stream: "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\n" +
+				"data: " + bufferedChatCompleted,
+		},
+		{
+			name: "ignore unrelated event payload shapes",
+			stream: bufferedChatTestStream(bufferedChatCompleted,
+				`{"type":"response.future_event","delta":{"value":"ignored"},"item":[1,2]}`,
+				`{"type":"response.output_text.delta","delta":"Hello"}`,
+			),
+		},
+		{
+			name: "ignore events after the terminal response",
+			stream: bufferedChatTestStream(bufferedChatCompleted, `{"type":"response.output_text.delta","delta":"Hello"}`) +
+				"data: malformed trailing event\n\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response, err := bufferChatCompletionFromSSE(strings.NewReader(tc.stream), modelGPT55)
+			require.NoError(t, err)
+			assert.Equal(t, "Hello", extractCompletionText(response))
+			assert.Equal(t, "stop", response.Choices[0].FinishReason)
+		})
+	}
+}
+
+func bufferedTerminalTestStream(terminal string, withTools bool) string {
+	events := []string{`{"type":"response.output_text.delta","delta":"partial answer"}`}
+	if withTools {
+		events = append(events,
+			`{"type":"response.output_item.added","item":{"id":"fc_ping","type":"function_call","call_id":"call_ping","name":"ping","arguments":""}}`,
+			`{"type":"response.function_call_arguments.delta","item_id":"fc_ping","delta":"{}"}`,
+			`{"type":"response.output_item.done","item":{"id":"fc_ping","type":"function_call","call_id":"call_ping","name":"ping","arguments":"{}"}}`,
+		)
+	}
+	return bufferedChatTestStream(terminal, events...)
+}
+
+func TestBufferChatCompletionFromSSETerminalOutcomes(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		terminal  string
+		finish    string
+		errorCode string
+	}{
+		{name: "token limit", terminal: bufferedChatIncomplete, finish: "length"},
+		{name: "content filter", terminal: `{"type":"response.incomplete","response":{"incomplete_details":{"reason":"content_filter"}}}`, finish: "content_filter"},
+		{name: "unknown incomplete reason", terminal: `{"type":"response.incomplete","response":{"incomplete_details":{"reason":"unknown_limit"}}}`, errorCode: "unknown_limit"},
+		{name: "incomplete without details", terminal: `{"type":"response.incomplete","response":{}}`, errorCode: "incomplete"},
+		{name: "failed response", terminal: bufferedChatFailed, errorCode: "context_length_exceeded"},
+		{name: "incomplete with explicit error", terminal: `{"type":"response.incomplete","response":{"error":{"code":"context_length_exceeded","message":"context limit"},"incomplete_details":{"reason":"max_output_tokens"}}}`, errorCode: "context_length_exceeded"},
+		{name: "completed event with explicit error", terminal: `{"type":"response.completed","response":{"error":{"code":"server_error","message":"model failed"}}}`, errorCode: "server_error"},
+		{name: "failed without details", terminal: `{"type":"response.failed","response":{}}`, errorCode: "upstream_error"},
+		{name: "flat error event", terminal: `{"type":"error","code":"rate_limit_exceeded","message":"slow down"}`, errorCode: "rate_limit_exceeded"},
+		{name: "nested error event", terminal: `{"type":"error","error":{"code":"server_error","message":"model failed"}}`, errorCode: "server_error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, withTools := range []bool{false, true} {
+				name := "text only"
+				if withTools {
+					name = "with completed tool calls"
+				}
+				t.Run(name, func(t *testing.T) {
+					response, err := bufferChatCompletionFromSSE(strings.NewReader(bufferedTerminalTestStream(tc.terminal, withTools)), modelGPT55)
+					if tc.errorCode != "" {
+						require.ErrorContains(t, err, tc.errorCode)
+						assert.Nil(t, response)
+						return
+					}
+					require.NoError(t, err)
+					assert.Equal(t, tc.finish, response.Choices[0].FinishReason)
+					assert.Equal(t, "partial answer", extractCompletionText(response))
+					assert.Nil(t, response.Choices[0].Message.ToolCalls, "incomplete generations must not publish calls")
+				})
+			}
+		})
+	}
+}
+
+func TestChatCompletionsHandlerBufferedOutcomes(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		terminal string
+		status   int
+		code     string
+		message  string
+		kind     string
+	}{
+		{name: "token limit", terminal: bufferedChatIncomplete, status: http.StatusOK},
+		{name: "context limit", terminal: bufferedChatFailed, status: http.StatusBadRequest, code: "context_length_exceeded", message: "context limit exceeded", kind: "invalid_request_error"},
+		{name: "rate limit", terminal: `{"type":"error","code":"rate_limit_exceeded","message":"slow down"}`, status: http.StatusTooManyRequests, code: "rate_limit_exceeded", message: "slow down", kind: "rate_limit_error"},
+		{name: "server error", terminal: `{"type":"response.failed","response":{"error":{"code":"server_error","message":"model failed"}}}`, status: http.StatusInternalServerError, code: "server_error", message: "model failed", kind: "server_error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}}
+			s.httpClient = responsesTestClient(func(r *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(bufferedTerminalTestStream(tc.terminal, true)))}, nil
+			})
+			for _, streamField := range []string{"", `,"stream":false`} {
+				w := httptest.NewRecorder()
+				s.chatCompletionsHandler(w, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-5.5","messages":[]`+streamField+`}`)))
+				require.Equal(t, tc.status, w.Code, w.Body.String())
+				assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+				if tc.status == http.StatusOK {
+					var response ChatCompletionResponse
+					require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+					require.Len(t, response.Choices, 1)
+					assert.Equal(t, "length", response.Choices[0].FinishReason)
+					assert.Equal(t, "partial answer", extractCompletionText(&response))
+					assert.Nil(t, response.Choices[0].Message.ToolCalls)
+					continue
+				}
+				var body map[string]interface{}
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+				detail, ok := body["error"].(map[string]interface{})
+				require.True(t, ok)
+				assert.Equal(t, tc.code, detail["code"])
+				assert.Equal(t, tc.message, detail["message"])
+				assert.Equal(t, tc.kind, detail["type"])
+				if tc.code == "context_length_exceeded" {
+					assert.Equal(t, "messages", detail["param"])
+				}
+			}
+		})
+	}
+}
+
+func TestMCPAskCodexBufferedTerminalOutcomes(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		terminal string
+		isError  bool
+		message  string
+	}{
+		{name: "incomplete keeps text despite unsolicited call", terminal: bufferedChatIncomplete, message: "partial answer"},
+		{name: "failure preserves upstream code", terminal: bufferedChatFailed, isError: true, message: "context_length_exceeded"},
+		{name: "interrupted calls still fail", isError: true, message: "upstream response ended before tool calls completed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newMCPTestServer(t)
+			s.httpClient = responsesTestClient(func(r *http.Request) (*http.Response, error) {
+				var outbound map[string]interface{}
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&outbound))
+				assert.Empty(t, outbound["tools"], "ask_codex must not request tools")
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(bufferedTerminalTestStream(tc.terminal, true)))}, nil
+			})
+			recorder, response := postMCP(t, s, map[string]interface{}{
+				"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+				"params": map[string]interface{}{"name": "ask_codex", "arguments": map[string]interface{}{"model": modelGPT55, "prompt": "Answer without tools."}},
+			}, true)
+			require.Equal(t, http.StatusOK, recorder.Code)
+			result, ok := response["result"].(map[string]interface{})
+			require.True(t, ok)
+			assert.Equal(t, tc.isError, result["isError"] == true)
+			assert.Contains(t, mcpResultText(t, result), tc.message)
 		})
 	}
 }
