@@ -1,6 +1,9 @@
 package server
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+)
 
 type ChatFunctionCall struct {
 	Name      string `json:"name"`
@@ -66,4 +69,51 @@ type ChatCompletionResponse struct {
 	Created int64                  `json:"created"`
 	Model   string                 `json:"model"`
 	Choices []ChatCompletionChoice `json:"choices"`
+}
+
+// Buffered completions read Codex events directly so final arguments and terminal
+// outcomes are not lost in the streaming Chat Completions representation.
+type bufferedCodexEvent struct {
+	Type      string                 `json:"type"`
+	ItemID    string                 `json:"item_id"`
+	Delta     string                 `json:"delta"`
+	Arguments *string                `json:"arguments"`
+	Item      *bufferedCodexItem     `json:"item"`
+	Response  *bufferedCodexResponse `json:"response"`
+}
+
+type bufferedCodexResponse struct {
+	ID        string              `json:"id"`
+	Model     string              `json:"model"`
+	CreatedAt float64             `json:"created_at"`
+	Output    []bufferedCodexItem `json:"output"`
+}
+
+type bufferedCodexItem struct {
+	ID        string                 `json:"id"`
+	Type      string                 `json:"type"`
+	CallID    string                 `json:"call_id"`
+	Name      string                 `json:"name"`
+	Arguments *string                `json:"arguments"`
+	Content   []bufferedCodexContent `json:"content"`
+}
+
+type bufferedCodexContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type bufferedToolCall struct {
+	call      ChatToolCall
+	arguments bytes.Buffer
+}
+
+type bufferedChatCompletion struct {
+	responseID string
+	model      string
+	created    int64
+	content    bytes.Buffer
+	tools      []bufferedToolCall
+	toolIndex  map[string]int
+	terminal   string
 }

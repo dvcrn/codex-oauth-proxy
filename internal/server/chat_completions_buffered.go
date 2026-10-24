@@ -6,171 +6,65 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"sort"
+	"strings"
 	"time"
 )
 
-// streamingDelta represents the delta portion of a streamed chat completion chunk.
-type streamingDelta struct {
-	Role      string              `json:"role,omitempty"`
-	Content   string              `json:"content,omitempty"`
-	ToolCalls []streamingToolCall `json:"tool_calls,omitempty"`
-}
-
-// streamingToolCall identifies which tool call an incremental update belongs to.
-type streamingToolCall struct {
-	Index int `json:"index"`
-	ChatToolCall
-}
-
-// streamingChoice represents a single choice in a streamed chat completion chunk.
-type streamingChoice struct {
-	Index        int            `json:"index"`
-	Delta        streamingDelta `json:"delta"`
-	FinishReason *string        `json:"finish_reason"`
-}
-
-// streamingChunk is a minimal view of an OpenAI-style streamed chat completion chunk.
-type streamingChunk struct {
-	ID      string            `json:"id"`
-	Object  string            `json:"object"`
-	Created int64             `json:"created"`
-	Model   string            `json:"model"`
-	Choices []streamingChoice `json:"choices"`
-}
-
-// bufferChatCompletionFromSSE consumes an upstream Codex SSE stream, uses the SSETransformer
-// to convert it into OpenAI-style chat.completion.chunk events, and then aggregates those
-// chunks into a single non-streaming ChatCompletionResponse suitable for clients that expect
-// the classic /v1/chat/completions JSON shape.
+// bufferChatCompletionFromSSE assembles a non-streaming Chat Completions response
+// from Codex events, retaining final arguments that need not appear in deltas.
 func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionResponse, error) {
-	transformer := NewSSETransformer(model)
-
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = modelDefault
+	}
+	state := bufferedChatCompletion{model: model}
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-
-	var (
-		dataLines      [][]byte
-		responseID     string
-		streamModel    string
-		created        int64
-		role           string
-		contentBuilder bytes.Buffer
-		finishReason   string
-	)
-	type bufferedToolCall struct {
-		call      ChatToolCall
-		arguments bytes.Buffer
-	}
-	bufferedToolCalls := make(map[int]*bufferedToolCall)
-
+	var dataLines [][]byte
+	var eventType string
 	flushEvent := func() error {
 		if len(dataLines) == 0 {
+			eventType = ""
 			return nil
 		}
-		raw := bytes.Join(dataLines, []byte("\n"))
+		var event bufferedCodexEvent
+		if err := json.Unmarshal(bytes.Join(dataLines, []byte("\n")), &event); err != nil {
+			return fmt.Errorf("failed to decode upstream SSE event: %w", err)
+		}
 		dataLines = dataLines[:0]
-
-		out, done, err := transformer.Transform(raw)
-		if err != nil {
-			return fmt.Errorf("failed to transform SSE event: %w", err)
+		if event.Type == "" {
+			event.Type = eventType
 		}
-		if done {
-			// DONE is signaled separately via [DONE] marker; nothing to do here.
-			return nil
-		}
-		if len(out) == 0 {
-			return nil
-		}
-
-		lines := bytes.Split(out, []byte("\n"))
-		for _, line := range lines {
-			line = bytes.TrimSpace(line)
-			if len(line) == 0 {
-				continue
-			}
-			var chunk streamingChunk
-			if err := json.Unmarshal(line, &chunk); err != nil {
-				// If we cannot interpret this as a chunk, skip it rather than failing the whole request.
-				continue
-			}
-
-			if responseID == "" && chunk.ID != "" {
-				responseID = chunk.ID
-			}
-			if streamModel == "" && chunk.Model != "" {
-				streamModel = chunk.Model
-			}
-			if created == 0 && chunk.Created != 0 {
-				created = chunk.Created
-			}
-
-			for _, ch := range chunk.Choices {
-				if ch.Delta.Role != "" && role == "" {
-					role = ch.Delta.Role
-				}
-				if ch.Delta.Content != "" {
-					contentBuilder.WriteString(ch.Delta.Content)
-				}
-				for _, delta := range ch.Delta.ToolCalls {
-					tool := bufferedToolCalls[delta.Index]
-					if tool == nil {
-						tool = &bufferedToolCall{}
-						bufferedToolCalls[delta.Index] = tool
-					}
-					if delta.ID != "" {
-						tool.call.ID = delta.ID
-					}
-					if delta.Type != "" {
-						tool.call.Type = delta.Type
-					}
-					if delta.Function.Name != "" {
-						tool.call.Function.Name = delta.Function.Name
-					}
-					tool.arguments.WriteString(delta.Function.Arguments)
-				}
-				if ch.FinishReason != nil && *ch.FinishReason != "" {
-					finishReason = *ch.FinishReason
-				}
-			}
-		}
+		eventType = ""
+		state.applyEvent(event)
 		return nil
 	}
 
+scanLoop:
 	for scanner.Scan() {
-		line := scanner.Bytes()
-		trimmed := bytes.TrimSpace(line)
-
-		// Blank line terminates current SSE event.
-		if len(trimmed) == 0 {
+		line := bytes.TrimSpace(scanner.Bytes())
+		switch {
+		case len(line) == 0:
 			if err := flushEvent(); err != nil {
 				return nil, err
 			}
-			continue
-		}
-
-		// Ignore comment lines.
-		if bytes.HasPrefix(trimmed, []byte(":")) {
-			continue
-		}
-
-		// Only handle "data:" lines.
-		if bytes.HasPrefix(trimmed, []byte("data:")) {
-			payload := bytes.TrimPrefix(trimmed, []byte("data:"))
+			if state.terminal != "" {
+				break scanLoop
+			}
+		case bytes.HasPrefix(line, []byte("event:")):
+			eventType = string(bytes.TrimSpace(line[len("event:"):]))
+		case bytes.HasPrefix(line, []byte("data:")):
+			payload := bytes.TrimPrefix(line, []byte("data:"))
 			if len(payload) > 0 && payload[0] == ' ' {
 				payload = payload[1:]
 			}
-			// Handle [DONE] terminator.
 			if bytes.Equal(bytes.TrimSpace(payload), []byte("[DONE]")) {
-				// Flush any pending event and stop; nothing more to read.
 				if err := flushEvent(); err != nil {
 					return nil, err
 				}
-				continue
+				break scanLoop
 			}
-			cp := make([]byte, len(payload))
-			copy(cp, payload)
-			dataLines = append(dataLines, cp)
+			dataLines = append(dataLines, bytes.Clone(payload))
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -179,61 +73,124 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 	if err := flushEvent(); err != nil {
 		return nil, err
 	}
-
-	// A failed or truncated generation must not publish executable tool calls.
-	if len(bufferedToolCalls) > 0 && finishReason != "tool_calls" {
+	// Individual calls can be complete even when the overall generation failed.
+	if len(state.tools) > 0 && state.terminal != "response.completed" {
 		return nil, fmt.Errorf("upstream response ended before tool calls completed")
 	}
+	return state.completion(), nil
+}
 
-	// Construct a non-streaming ChatCompletionResponse.
-	if responseID == "" {
-		responseID = "chatcmpl-buffered"
+func (b *bufferedChatCompletion) applyEvent(event bufferedCodexEvent) {
+	if event.Response != nil {
+		if event.Response.ID != "" {
+			b.responseID = "chatcmpl-" + event.Response.ID
+		}
+		if event.Response.Model != "" {
+			b.model = event.Response.Model
+		}
+		if event.Response.CreatedAt != 0 {
+			b.created = int64(event.Response.CreatedAt)
+		}
 	}
-	if created == 0 {
-		created = time.Now().Unix()
+	switch event.Type {
+	case "response.output_text.delta":
+		b.content.WriteString(event.Delta)
+	case "response.output_item.added", "response.output_item.done":
+		if event.Item != nil && event.Item.Type == "function_call" {
+			b.applyToolItem(*event.Item)
+		}
+	case "response.function_call_arguments.delta":
+		if index, ok := b.toolIndex[event.ItemID]; ok {
+			b.tools[index].arguments.WriteString(event.Delta)
+		}
+	case "response.function_call_arguments.done":
+		if index, ok := b.toolIndex[event.ItemID]; ok && event.Arguments != nil {
+			b.tools[index].arguments.Reset()
+			b.tools[index].arguments.WriteString(*event.Arguments)
+		}
+	case "response.completed":
+		b.terminal = event.Type
+		// Some Codex streams omit the final output array. Otherwise the final
+		// snapshot is authoritative, not something to append to the deltas.
+		if event.Response != nil && len(event.Response.Output) > 0 {
+			b.content.Reset()
+			b.tools = nil
+			b.toolIndex = nil
+			for _, item := range event.Response.Output {
+				switch item.Type {
+				case "function_call":
+					b.applyToolItem(item)
+				case "message":
+					for _, part := range item.Content {
+						if part.Type == "output_text" {
+							b.content.WriteString(part.Text)
+						}
+					}
+				}
+			}
+		}
+	case "response.failed", "response.incomplete", "error":
+		b.terminal = event.Type
 	}
-	if streamModel != "" {
-		model = streamModel
-	}
-	if role == "" {
-		role = "assistant"
-	}
-	if finishReason == "" {
-		finishReason = "stop"
-	}
+}
 
+func (b *bufferedChatCompletion) applyToolItem(item bufferedCodexItem) {
+	index, ok := b.toolIndex[item.ID]
+	if !ok {
+		if b.toolIndex == nil {
+			b.toolIndex = make(map[string]int)
+		}
+		index = len(b.tools)
+		b.toolIndex[item.ID] = index
+		b.tools = append(b.tools, bufferedToolCall{})
+	}
+	tool := &b.tools[index]
+	tool.call.Type = "function"
+	if item.CallID != "" {
+		tool.call.ID = item.CallID
+	} else if tool.call.ID == "" {
+		tool.call.ID = "call_" + item.ID
+	}
+	if item.Name != "" {
+		tool.call.Function.Name = item.Name
+	}
+	if item.Arguments != nil {
+		tool.arguments.Reset()
+		tool.arguments.WriteString(*item.Arguments)
+	}
+}
+
+func (b *bufferedChatCompletion) completion() *ChatCompletionResponse {
+	if b.responseID == "" {
+		b.responseID = "chatcmpl-buffered"
+	}
+	if b.created == 0 {
+		b.created = time.Now().Unix()
+	}
+	finishReason := "stop"
 	var toolCalls []ChatToolCall
-	if len(bufferedToolCalls) > 0 {
-		// Keep the tool-call order stable even when argument deltas are interleaved.
-		toolIndexes := make([]int, 0, len(bufferedToolCalls))
-		for index := range bufferedToolCalls {
-			toolIndexes = append(toolIndexes, index)
-		}
-		sort.Ints(toolIndexes)
-		toolCalls = make([]ChatToolCall, 0, len(toolIndexes))
-		for _, index := range toolIndexes {
-			tool := bufferedToolCalls[index]
-			tool.call.Function.Arguments = tool.arguments.String()
-			toolCalls = append(toolCalls, tool.call)
+	if len(b.tools) > 0 {
+		finishReason = "tool_calls"
+		// Calls remain in first-seen order; the map only resolves Codex item IDs.
+		toolCalls = make([]ChatToolCall, len(b.tools))
+		for index := range b.tools {
+			toolCalls[index] = b.tools[index].call
+			toolCalls[index].Function.Arguments = b.tools[index].arguments.String()
 		}
 	}
-
-	resp := &ChatCompletionResponse{
-		ID:      responseID,
+	return &ChatCompletionResponse{
+		ID:      b.responseID,
 		Object:  "chat.completion",
-		Created: created,
-		Model:   model,
-		Choices: []ChatCompletionChoice{
-			{
-				Index: 0,
-				Message: ChatMessage{
-					Role:      role,
-					Content:   contentBuilder.String(),
-					ToolCalls: toolCalls,
-				},
-				FinishReason: finishReason,
+		Created: b.created,
+		Model:   b.model,
+		Choices: []ChatCompletionChoice{{
+			Index: 0,
+			Message: ChatMessage{
+				Role:      "assistant",
+				Content:   b.content.String(),
+				ToolCalls: toolCalls,
 			},
-		},
+			FinishReason: finishReason,
+		}},
 	}
-	return resp, nil
 }
