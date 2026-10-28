@@ -38,6 +38,7 @@ type streamingChunk struct {
 // the classic /v1/chat/completions JSON shape.
 func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionResponse, error) {
 	transformer := NewSSETransformer(model)
+	transformer.omitUsageFallback = true
 
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)

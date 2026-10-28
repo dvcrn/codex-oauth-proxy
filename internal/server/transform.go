@@ -808,6 +808,8 @@ type SSETransformer struct {
 	nextToolIndex     int
 	// whether we saw any tool calls in this response (affects finish_reason)
 	sawToolCalls bool
+	// Buffering disables synthetic usage so unavailable accounting stays omitted.
+	omitUsageFallback bool
 }
 
 func NewSSETransformer(model string) *SSETransformer {
@@ -1092,9 +1094,9 @@ func (t *SSETransformer) Transform(dataLine []byte) (out []byte, done bool, err 
 		// Map upstream usage (if present) into an OpenAI-style usage object.
 		// Upstream usage is typically nested under response.usage with fields like
 		// input_tokens / output_tokens / total_tokens. We convert these into
-		// prompt_tokens / completion_tokens / total_tokens. If nothing is
-		// available, fall back to zeros so clients that expect a usage object
-		// (like Xcode) still see a well-formed structure.
+		// prompt_tokens / completion_tokens / total_tokens. Streaming defaults
+		// to zeros when unavailable for clients like Xcode; buffering disables
+		// that compatibility fallback to keep unknown usage omitted.
 		var usage map[string]interface{}
 		if respObj, ok := upstream["response"].(map[string]interface{}); ok {
 			if u, ok := respObj["usage"].(map[string]interface{}); ok {
@@ -1130,12 +1132,16 @@ func (t *SSETransformer) Transform(dataLine []byte) (out []byte, done bool, err 
 				} else if details, ok := u["output_tokens_details"].(map[string]interface{}); ok {
 					outUsage["completion_tokens_details"] = details
 				}
-				if len(outUsage) > 0 {
+				// Both basic counters are required; total_tokens is supplied or
+				// derived above. Detail objects alone do not establish usage.
+				_, hasPromptTokens := outUsage["prompt_tokens"]
+				_, hasCompletionTokens := outUsage["completion_tokens"]
+				if hasPromptTokens && hasCompletionTokens {
 					usage = outUsage
 				}
 			}
 		}
-		if usage == nil {
+		if usage == nil && !t.omitUsageFallback {
 			usage = map[string]interface{}{
 				"prompt_tokens":     0,
 				"completion_tokens": 0,
@@ -1155,7 +1161,9 @@ func (t *SSETransformer) Transform(dataLine []byte) (out []byte, done bool, err 
 					"finish_reason": finish,
 				},
 			},
-			"usage": usage,
+		}
+		if usage != nil {
+			finalChunk["usage"] = usage
 		}
 		finalBytes, err := json.Marshal(finalChunk)
 		if err != nil {

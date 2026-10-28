@@ -35,9 +35,46 @@ func TestChatCompletionsHandlerPreservesUsage(t *testing.T) {
 			want:  `{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}`,
 		},
 		{
-			name:  "partial usage is not fabricated",
+			name:  "explicit zero usage is preserved",
+			usage: `,"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}`,
+			want:  zeroUsage,
+		},
+		{
+			name:  "derive zero total",
+			usage: `,"usage":{"input_tokens":0,"output_tokens":0}`,
+			want:  zeroUsage,
+		},
+		{
+			name:  "partial input usage is unavailable",
 			usage: `,"usage":{"input_tokens":3}`,
-			want:  `{"prompt_tokens":3}`,
+		},
+		{
+			name:  "partial output usage is unavailable",
+			usage: `,"usage":{"output_tokens":2}`,
+		},
+		{
+			name:  "total only usage is unavailable",
+			usage: `,"usage":{"total_tokens":5}`,
+		},
+		{
+			name:  "responses details without counters are unavailable",
+			usage: `,"usage":{"input_tokens_details":{"cached_tokens":2},"output_tokens_details":{"reasoning_tokens":1}}`,
+		},
+		{
+			name:  "chat details without counters are unavailable",
+			usage: `,"usage":{"prompt_tokens_details":{"cached_tokens":2},"completion_tokens_details":{"reasoning_tokens":1}}`,
+		},
+		{
+			name:  "details and a partial counter are unavailable",
+			usage: `,"usage":{"input_tokens":3,"total_tokens":5,"input_tokens_details":{"cached_tokens":2}}`,
+		},
+		{
+			name:  "null counter is unavailable",
+			usage: `,"usage":{"input_tokens":null,"output_tokens":2}`,
+		},
+		{
+			name:  "incorrectly typed counter is unavailable",
+			usage: `,"usage":{"input_tokens":"3","output_tokens":2}`,
 		},
 		{
 			name: "chat totals and details",
@@ -80,9 +117,10 @@ func TestChatCompletionsHandlerPreservesUsage(t *testing.T) {
 			usage: `,"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":16}`,
 			want:  `{"prompt_tokens":10,"completion_tokens":5,"total_tokens":16}`,
 		},
-		{name: "missing usage", want: zeroUsage},
-		{name: "null usage", usage: `,"usage":null`, want: zeroUsage},
-		{name: "empty usage", usage: `,"usage":{}`, want: zeroUsage},
+		{name: "missing usage"},
+		{name: "null usage", usage: `,"usage":null`},
+		{name: "empty usage", usage: `,"usage":{}`},
+		{name: "non-object usage", usage: `,"usage":[]`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, mode := range []struct {
@@ -140,8 +178,17 @@ func TestChatCompletionsHandlerPreservesUsage(t *testing.T) {
 						require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
 						usage = response.Usage
 					}
-					require.NotEmpty(t, usage, "usage missing from response: %s", w.Body.String())
-					require.JSONEq(t, tc.want, string(usage))
+					want := tc.want
+					if mode.sse && want == "" {
+						// Streaming retains its zero-usage compatibility fallback.
+						want = zeroUsage
+					}
+					if want == "" {
+						require.Empty(t, usage, "unavailable buffered usage must be omitted: %s", w.Body.String())
+					} else {
+						require.NotEmpty(t, usage, "usage missing from response: %s", w.Body.String())
+						require.JSONEq(t, want, string(usage))
+					}
 				})
 			}
 		})
