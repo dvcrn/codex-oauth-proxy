@@ -29,6 +29,7 @@ type streamingChunk struct {
 	Created int64             `json:"created"`
 	Model   string            `json:"model"`
 	Choices []streamingChoice `json:"choices"`
+	Usage   json.RawMessage   `json:"usage,omitempty"`
 }
 
 // bufferChatCompletionFromSSE consumes an upstream Codex SSE stream, uses the SSETransformer
@@ -44,6 +45,7 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 	var (
 		dataLines      [][]byte
 		responseID     string
+		usage          json.RawMessage
 		streamModel    string
 		created        int64
 		role           string
@@ -90,6 +92,9 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 			}
 			if created == 0 && chunk.Created != 0 {
 				created = chunk.Created
+			}
+			if len(chunk.Usage) > 0 {
+				usage = chunk.Usage
 			}
 
 			for _, ch := range chunk.Choices {
@@ -172,6 +177,7 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 		Object:  "chat.completion",
 		Created: created,
 		Model:   model,
+		Usage:   usage,
 		Choices: []ChatCompletionChoice{
 			{
 				Index: 0,

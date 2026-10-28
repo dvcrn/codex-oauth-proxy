@@ -1118,6 +1118,18 @@ func (t *SSETransformer) Transform(dataLine []byte) (out []byte, done bool, err 
 						}
 					}
 				}
+				// Preserve the full detail objects, including cached and reasoning
+				// tokens, under their Chat Completions field names.
+				if details, ok := u["prompt_tokens_details"].(map[string]interface{}); ok {
+					outUsage["prompt_tokens_details"] = details
+				} else if details, ok := u["input_tokens_details"].(map[string]interface{}); ok {
+					outUsage["prompt_tokens_details"] = details
+				}
+				if details, ok := u["completion_tokens_details"].(map[string]interface{}); ok {
+					outUsage["completion_tokens_details"] = details
+				} else if details, ok := u["output_tokens_details"].(map[string]interface{}); ok {
+					outUsage["completion_tokens_details"] = details
+				}
 				if len(outUsage) > 0 {
 					usage = outUsage
 				}
