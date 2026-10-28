@@ -315,6 +315,7 @@ func TestBufferChatCompletionFromSSETerminalOutcomes(t *testing.T) {
 		terminal  string
 		finish    string
 		errorCode string
+		errorType string
 	}{
 		{name: "token limit", terminal: bufferedChatIncomplete, finish: "length"},
 		{name: "content filter", terminal: `{"type":"response.incomplete","response":{"incomplete_details":{"reason":"content_filter"}}}`, finish: "content_filter"},
@@ -323,7 +324,7 @@ func TestBufferChatCompletionFromSSETerminalOutcomes(t *testing.T) {
 		{name: "failed response", terminal: bufferedChatFailed, errorCode: "context_length_exceeded"},
 		{name: "incomplete with explicit error", terminal: `{"type":"response.incomplete","response":{"error":{"code":"context_length_exceeded","message":"context limit"},"incomplete_details":{"reason":"max_output_tokens"}}}`, errorCode: "context_length_exceeded"},
 		{name: "completed event with explicit error", terminal: `{"type":"response.completed","response":{"error":{"code":"server_error","message":"model failed"}}}`, errorCode: "server_error"},
-		{name: "failed without details", terminal: `{"type":"response.failed","response":{}}`, errorCode: "upstream_error"},
+		{name: "failed without details", terminal: `{"type":"response.failed","response":{}}`, errorCode: "upstream_error", errorType: "server_error"},
 		{name: "flat error event", terminal: `{"type":"error","code":"rate_limit_exceeded","message":"slow down"}`, errorCode: "rate_limit_exceeded"},
 		{name: "nested error event", terminal: `{"type":"error","error":{"code":"server_error","message":"model failed"}}`, errorCode: "server_error"},
 	} {
@@ -337,6 +338,11 @@ func TestBufferChatCompletionFromSSETerminalOutcomes(t *testing.T) {
 					response, err := bufferChatCompletionFromSSE(strings.NewReader(bufferedTerminalTestStream(tc.terminal, withTools)), modelGPT55)
 					if tc.errorCode != "" {
 						require.ErrorContains(t, err, tc.errorCode)
+						if tc.errorType != "" {
+							var upstreamError *bufferedUpstreamError
+							require.ErrorAs(t, err, &upstreamError)
+							assert.Equal(t, tc.errorType, upstreamError.Type)
+						}
 						assert.Nil(t, response)
 						return
 					}
@@ -363,6 +369,8 @@ func TestChatCompletionsHandlerBufferedOutcomes(t *testing.T) {
 		{name: "context limit", terminal: bufferedChatFailed, status: http.StatusBadRequest, code: "context_length_exceeded", message: "context limit exceeded", kind: "invalid_request_error"},
 		{name: "rate limit", terminal: `{"type":"error","code":"rate_limit_exceeded","message":"slow down"}`, status: http.StatusTooManyRequests, code: "rate_limit_exceeded", message: "slow down", kind: "rate_limit_error"},
 		{name: "server error", terminal: `{"type":"response.failed","response":{"error":{"code":"server_error","message":"model failed"}}}`, status: http.StatusInternalServerError, code: "server_error", message: "model failed", kind: "server_error"},
+		{name: "failed without details", terminal: `{"type":"response.failed","response":{}}`, status: http.StatusInternalServerError, code: "upstream_error", message: "upstream response failed", kind: "server_error"},
+		{name: "flat failed response", terminal: `{"type":"response.failed","code":"context_length_exceeded","message":"flat context limit","param":"messages"}`, status: http.StatusBadRequest, code: "context_length_exceeded", message: "flat context limit", kind: "invalid_request_error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}}

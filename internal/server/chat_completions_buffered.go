@@ -79,7 +79,12 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 		case "response.failed", "error":
 			detail, ok := event["error"].(map[string]interface{})
 			if !ok {
-				detail = event
+				// The event's type is not an OpenAI error classification.
+				detail = map[string]interface{}{
+					"code":    event["code"],
+					"message": event["message"],
+					"param":   event["param"],
+				}
 			}
 			return bufferedStreamError(detail)
 		case "response.incomplete":
