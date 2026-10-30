@@ -1,10 +1,25 @@
 package server
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+)
+
+type ChatFunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type ChatToolCall struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function ChatFunctionCall `json:"function"`
+}
 
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string         `json:"role"`
+	Content   *string        `json:"content"`
+	ToolCalls []ChatToolCall `json:"tool_calls,omitempty"`
 }
 
 type ChatCompletionRequest struct {
@@ -55,4 +70,22 @@ type ChatCompletionResponse struct {
 	Model   string                 `json:"model"`
 	Choices []ChatCompletionChoice `json:"choices"`
 	Usage   json.RawMessage        `json:"usage,omitempty"`
+}
+
+// streamingToolCall identifies which call an incremental update belongs to.
+type streamingToolCall struct {
+	Index int `json:"index"`
+	ChatToolCall
+}
+
+type bufferedToolCall struct {
+	call      ChatToolCall
+	arguments bytes.Buffer
+}
+
+type bufferedUpstreamError struct {
+	Code    string  `json:"code"`
+	Message string  `json:"message"`
+	Type    string  `json:"type"`
+	Param   *string `json:"param"`
 }

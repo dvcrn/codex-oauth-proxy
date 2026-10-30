@@ -321,6 +321,7 @@ func mcpResultText(t *testing.T, result map[string]interface{}) string {
 }
 
 func TestExtractCompletionText(t *testing.T) {
+	hello, world := "Hello, ", "world!"
 	testCases := []struct {
 		name       string
 		completion *ChatCompletionResponse
@@ -340,11 +341,21 @@ func TestExtractCompletionText(t *testing.T) {
 			name: "joins choice content",
 			completion: &ChatCompletionResponse{
 				Choices: []ChatCompletionChoice{
-					{Message: ChatMessage{Role: "assistant", Content: "Hello, "}},
-					{Message: ChatMessage{Role: "assistant", Content: "world!"}},
+					{Message: ChatMessage{Role: "assistant", Content: &hello}},
+					{Message: ChatMessage{Role: "assistant", Content: &world}},
 				},
 			},
 			want: "Hello, world!",
+		},
+		{
+			name: "skips null content",
+			completion: &ChatCompletionResponse{
+				Choices: []ChatCompletionChoice{
+					{Message: ChatMessage{Role: "assistant"}},
+					{Message: ChatMessage{Role: "assistant", Content: &world}},
+				},
+			},
+			want: "world!",
 		},
 	}
 

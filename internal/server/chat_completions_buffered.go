@@ -11,8 +11,9 @@ import (
 
 // streamingDelta represents the delta portion of a streamed chat completion chunk.
 type streamingDelta struct {
-	Role    string `json:"role,omitempty"`
-	Content string `json:"content,omitempty"`
+	Role      string              `json:"role,omitempty"`
+	Content   string              `json:"content,omitempty"`
+	ToolCalls []streamingToolCall `json:"tool_calls,omitempty"`
 }
 
 // streamingChoice represents a single choice in a streamed chat completion chunk.
@@ -52,6 +53,8 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 		role           string
 		contentBuilder bytes.Buffer
 		finishReason   string
+		terminal       bool
+		bufferedCalls  []bufferedToolCall
 	)
 
 	flushEvent := func() error {
@@ -60,6 +63,65 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 		}
 		raw := bytes.Join(dataLines, []byte("\n"))
 		dataLines = dataLines[:0]
+
+		// Read only the final arguments and outcomes omitted by SSETransformer.
+		var event map[string]interface{}
+		if err := json.Unmarshal(raw, &event); err != nil {
+			return fmt.Errorf("invalid upstream SSE event: %w", err)
+		}
+		eventType, _ := event["type"].(string)
+		response, _ := event["response"].(map[string]interface{})
+		switch eventType {
+		case "response.completed", "response.failed", "response.incomplete", "error":
+			terminal = true
+			if detail, ok := response["error"].(map[string]interface{}); ok {
+				return bufferedStreamError(detail)
+			}
+		}
+		switch eventType {
+		case "response.failed", "error":
+			detail, ok := event["error"].(map[string]interface{})
+			if !ok {
+				// The event's type is not an OpenAI error classification.
+				detail = map[string]interface{}{
+					"code":    event["code"],
+					"message": event["message"],
+					"param":   event["param"],
+				}
+			}
+			return bufferedStreamError(detail)
+		case "response.incomplete":
+			details, _ := response["incomplete_details"].(map[string]interface{})
+			reason, _ := details["reason"].(string)
+			switch reason {
+			case "max_output_tokens":
+				finishReason = "length"
+			case "content_filter":
+				finishReason = "content_filter"
+			default:
+				if reason == "" {
+					reason = "incomplete"
+				}
+				return &bufferedUpstreamError{Code: reason, Message: "upstream response incomplete: " + reason, Type: "server_error"}
+			}
+			// Even individually completed calls must not escape an incomplete generation.
+			bufferedCalls = nil
+			return nil
+		case "response.function_call_arguments.done", "response.output_item.done":
+			itemID, _ := event["item_id"].(string)
+			arguments, hasArguments := event["arguments"].(string)
+			if item, ok := event["item"].(map[string]interface{}); ok {
+				itemID, _ = item["id"].(string)
+				arguments, hasArguments = item["arguments"].(string)
+			}
+			// Reuse the transformer's item-to-index mapping; final payloads replace,
+			// rather than append to, arguments already received through deltas.
+			if index, ok := transformer.toolIndexByItemID[itemID]; ok && hasArguments && index < len(bufferedCalls) {
+				bufferedCalls[index].arguments.Reset()
+				bufferedCalls[index].arguments.WriteString(arguments)
+			}
+			return nil
+		}
 
 		out, done, err := transformer.Transform(raw)
 		if err != nil {
@@ -105,6 +167,22 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 				if ch.Delta.Content != "" {
 					contentBuilder.WriteString(ch.Delta.Content)
 				}
+				for _, delta := range ch.Delta.ToolCalls {
+					for len(bufferedCalls) <= delta.Index {
+						bufferedCalls = append(bufferedCalls, bufferedToolCall{})
+					}
+					tool := &bufferedCalls[delta.Index]
+					if delta.ID != "" {
+						tool.call.ID = delta.ID
+					}
+					if delta.Type != "" {
+						tool.call.Type = delta.Type
+					}
+					if delta.Function.Name != "" {
+						tool.call.Function.Name = delta.Function.Name
+					}
+					tool.arguments.WriteString(delta.Function.Arguments)
+				}
 				if ch.FinishReason != nil && *ch.FinishReason != "" {
 					finishReason = *ch.FinishReason
 				}
@@ -113,7 +191,7 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 		return nil
 	}
 
-	for scanner.Scan() {
+	for !terminal && scanner.Scan() {
 		line := scanner.Bytes()
 		trimmed := bytes.TrimSpace(line)
 
@@ -142,7 +220,7 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 				if err := flushEvent(); err != nil {
 					return nil, err
 				}
-				continue
+				break
 			}
 			cp := make([]byte, len(payload))
 			copy(cp, payload)
@@ -154,6 +232,9 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 	}
 	if err := flushEvent(); err != nil {
 		return nil, err
+	}
+	if len(bufferedCalls) > 0 && !terminal {
+		return nil, fmt.Errorf("upstream response ended before tool calls completed")
 	}
 
 	// Construct a non-streaming ChatCompletionResponse.
@@ -172,7 +253,19 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 	if finishReason == "" {
 		finishReason = "stop"
 	}
-
+	var toolCalls []ChatToolCall
+	if len(bufferedCalls) > 0 {
+		toolCalls = make([]ChatToolCall, len(bufferedCalls))
+		for index := range bufferedCalls {
+			toolCalls[index] = bufferedCalls[index].call
+			toolCalls[index].Function.Arguments = bufferedCalls[index].arguments.String()
+		}
+	}
+	content := contentBuilder.String()
+	messageContent := &content
+	if content == "" && len(toolCalls) > 0 {
+		messageContent = nil
+	}
 	resp := &ChatCompletionResponse{
 		ID:      responseID,
 		Object:  "chat.completion",
@@ -183,12 +276,44 @@ func bufferChatCompletionFromSSE(body io.Reader, model string) (*ChatCompletionR
 			{
 				Index: 0,
 				Message: ChatMessage{
-					Role:    role,
-					Content: contentBuilder.String(),
+					Role:      role,
+					Content:   messageContent,
+					ToolCalls: toolCalls,
 				},
 				FinishReason: finishReason,
 			},
 		},
 	}
 	return resp, nil
+}
+
+func (e *bufferedUpstreamError) Error() string {
+	return e.Code + ": " + e.Message
+}
+
+func bufferedStreamError(detail map[string]interface{}) *bufferedUpstreamError {
+	code, _ := detail["code"].(string)
+	message, _ := detail["message"].(string)
+	kind, _ := detail["type"].(string)
+	if code == "" {
+		code = "upstream_error"
+	}
+	if message == "" {
+		message = "upstream response failed"
+	}
+	if kind == "" || kind == "error" {
+		switch code {
+		case "context_length_exceeded":
+			kind = "invalid_request_error"
+		case "rate_limit_exceeded":
+			kind = "rate_limit_error"
+		default:
+			kind = "server_error"
+		}
+	}
+	var param *string
+	if value, ok := detail["param"].(string); ok {
+		param = &value
+	}
+	return &bufferedUpstreamError{Code: code, Message: message, Type: kind, Param: param}
 }
