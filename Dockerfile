@@ -17,7 +17,8 @@ COPY . .
 ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -mod=readonly -trimpath -o codex-oauth-proxy ./cmd/codex-oauth-proxy
+    go build -mod=readonly -trimpath -buildvcs=false -ldflags="-s -w -buildid=" \
+    -o codex-oauth-proxy ./cmd/codex-oauth-proxy
 
 # Final stage - minimal image
 FROM alpine:latest
