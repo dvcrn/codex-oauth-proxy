@@ -1,11 +1,11 @@
 # Multi-stage build for Go application
-FROM golang:1.23.4-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25.7-alpine AS builder
 
 # Set working directory
 WORKDIR /app
 
-# Copy go mod file
-COPY go.mod ./
+# Copy dependency manifests
+COPY go.mod go.sum ./
 
 # Download dependencies
 RUN go mod download
@@ -13,8 +13,11 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o codex-oauth-proxy ./cmd/codex-oauth-proxy
+# Cross-compile on the build platform for each target architecture
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -mod=readonly -trimpath -o codex-oauth-proxy ./cmd/codex-oauth-proxy
 
 # Final stage - minimal image
 FROM alpine:latest
@@ -26,7 +29,7 @@ RUN apk --no-cache add ca-certificates
 RUN addgroup -g 1001 appgroup && \
     adduser -D -u 1001 -G appgroup appuser
 
-WORKDIR /root/
+WORKDIR /app
 
 # Copy the binary from builder stage
 COPY --from=builder /app/codex-oauth-proxy .
@@ -37,8 +40,8 @@ RUN chown appuser:appgroup codex-oauth-proxy
 # Switch to non-root user
 USER appuser
 
-# Expose port (adjust if your app uses a different port)
-EXPOSE 8080
+# Default server port
+EXPOSE 9879
 
 # Run the binary
 CMD ["./codex-oauth-proxy"]

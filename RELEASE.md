@@ -4,11 +4,11 @@ This document describes how to create and publish a new release for `codex-oauth
 
 ## Overview
 
-A release consists of two main distribution channels:
+A release consists of three distribution channels:
 
 1. **GitHub Releases (GoReleaser)**: Triggered automatically via GitHub Actions when a git tag is pushed. Builds cross-platform binaries (Darwin, Linux, Windows for `amd64`, `arm64`, `armv7`), generates `checksums.txt`, and creates GitHub Release assets.
 2. **NPM Package (`npm/`)**: Published to the npm registry (`codex-oauth-proxy`). Its `postinstall.js` script downloads the corresponding prebuilt binary directly from the GitHub Release assets.
-3. **Docker Image (Optional)**: Built and pushed to GitHub Container Registry (`ghcr.io/dvcrn/codex-oauth-proxy`) via `just docker-build`.
+3. **Docker Image**: The **Container image** GitHub Actions workflow automatically builds and publishes `linux/amd64` and `linux/arm64` images to GitHub Container Registry (`ghcr.io/dvcrn/codex-oauth-proxy`) on pushes to `main` and on all Git tag pushes. Pull requests build and smoke test the image without publishing.
 
 ---
 
@@ -76,13 +76,19 @@ mise run publish
 cd npm && npm publish
 ```
 
-### 6. (Optional) Publish Docker Container
+### 6. Verify Docker Publishing
 
-If publishing a Docker image to GHCR:
+The Git tag push also starts the **Container image** workflow independently of GoReleaser. It builds and smoke tests the container before publishing the multi-platform image. No manual Docker publishing step or registry secret is required: the publishing job uses `GITHUB_TOKEN` with `packages: write` permission.
+
+For tag `1.0.2`, verify the published manifest:
 
 ```bash
-just docker-build
+docker buildx imagetools inspect ghcr.io/dvcrn/codex-oauth-proxy:1.0.2
 ```
+
+Each published image receives a `sha-<full commit SHA>` tag. Pushes to `main` also update `:main`; Git tag pushes add the corresponding Docker-compatible Git tag (including a leading `v`, if present). There is no automatic `:latest` alias. See the [image tag table](README.md#docker-images) for examples.
+
+For the first publication, a repository maintainer may need to make the GHCR package public in its package settings so unauthenticated users can pull it. If the package already exists, ensure this repository has Actions access to it.
 
 ---
 
