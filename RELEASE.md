@@ -86,7 +86,9 @@ For tag `1.0.2`, verify the published manifest:
 docker buildx imagetools inspect ghcr.io/dvcrn/codex-oauth-proxy:1.0.2
 ```
 
-Each published image receives a `sha-<full commit SHA>` tag. Pushes to `main` also update `:main`; Git tag pushes add the corresponding Docker-compatible Git tag (including a leading `v`, if present). There is no automatic `:latest` alias. See the [image tag table](README.md#docker-images) for examples.
+See the [image tag table](README.md#docker-images) for the tags each push publishes.
+
+For a local image without publishing, run `just docker-build`. This builds and loads `codex-oauth-proxy:local` into the local Docker image store.
 
 For the first publication, a repository maintainer may need to make the GHCR package public in its package settings so unauthenticated users can pull it. If the package already exists, ensure this repository has Actions access to it.
 
