@@ -30,3 +30,31 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  npm:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Publish npm wrapper
+        working-directory: npm
+        run: |
+          if ! [[ "$GITHUB_REF_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must be a stable semantic version such as 1.2.3"
+            exit 1
+          fi
+
+          npm version "$GITHUB_REF_NAME" --no-git-tag-version --allow-same-version
+          npm publish

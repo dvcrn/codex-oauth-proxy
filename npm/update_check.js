@@ -64,7 +64,7 @@ function fetchLatestVersion(packageName, timeoutMs, signal) {
   const url = `https://registry.npmjs.org/${encodeURIComponent(packageName)}/latest`;
 
   return new Promise((resolve, reject) => {
-    const req = https.get(url, { headers: { "User-Agent": `${DEFAULT_PACKAGE_NAME}-update-check` } }, (res) => {
+    const req = https.get(url, { headers: { "User-Agent": `${CACHE_DIR_NAME}-update-check` } }, (res) => {
       if (res.statusCode !== 200) {
         reject(new Error(`GET ${url} -> ${res.statusCode}`));
         res.resume();
@@ -107,7 +107,9 @@ function normalizeVersion(version) {
 function printNotice({ packageName, installed, latest, updateCommand }) {
   const prefix = `${packageName}:`;
   if (installed && latest) {
-    console.error(`${prefix} an update is available (installed ${installed}, latest ${latest}). Update with: ${updateCommand}`);
+    console.error(
+      `${prefix} an update is available (installed ${installed}, latest ${latest}). Update with: ${updateCommand}`
+    );
     return;
   }
   console.error(`${prefix} an update is available. Update with: ${updateCommand}`);
@@ -164,3 +166,4 @@ function startUpdateCheck({
 module.exports = {
   startUpdateCheck,
 };
+

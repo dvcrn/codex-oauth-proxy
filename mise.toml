@@ -15,11 +15,3 @@ description = "Build the Cloudflare Worker"
 [tasks.test]
 run = "go test ./..."
 description = "Run Go tests"
-
-[tasks.publish]
-run = "cd npm/ && npm publish"
-description = "Publish the npm wrapper package in npm/"
-
-[tasks.npm_publish]
-run = "mise run publish"
-description = "Alias for publish (kept for backwards compatibility)"

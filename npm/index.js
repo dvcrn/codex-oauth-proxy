@@ -6,7 +6,8 @@ const { spawn } = require("child_process");
 const { installBinary } = require("./postinstall");
 const { startUpdateCheck } = require("./update_check");
 
-const exe = process.platform === "win32" ? "codex-oauth-proxy.exe" : "codex-oauth-proxy";
+const exe =
+  process.platform === "win32" ? "codex-oauth-proxy.exe" : "codex-oauth-proxy";
 const binPath = path.join(__dirname, exe);
 
 const PKG = (() => {
@@ -54,8 +55,7 @@ async function main() {
   });
   child.on("error", (err) => {
     console.error(err.message);
-    try { updateAbort.abort(); } catch {}
-    process.exit(1);
+    process.exitCode = 1;
   });
 }
 

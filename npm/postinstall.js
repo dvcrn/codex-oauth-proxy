@@ -69,7 +69,6 @@ function parseChecksums(text) {
   }
   return map;
 }
-
 async function installBinary() {
   const platformRaw = process.env[PLATFORM_ENV] || process.platform;
   const platform = platformRaw === "win32" ? "windows" : platformRaw;
@@ -111,6 +110,7 @@ async function installBinary() {
         `https://github.com/${OWNER}/${REPO}/releases/download/${version}`,
         `https://github.com/${OWNER}/${REPO}/releases/download/v${version}`,
       ];
+
   const headers = { "User-Agent": `${REPO}-postinstall` };
   const outDir = __dirname;
   const exe = platform === "windows" ? `${BIN}.exe` : BIN;
@@ -128,7 +128,7 @@ async function installBinary() {
   let lastErr = null;
   for (const base of bases) {
     const url = `${base}/${assetName}`;
-    console.log(`postinstall: downloading ${assetName} from ${url}`);
+    console.error(`postinstall: downloading ${assetName} from ${url}`);
     try {
       tarGz = await httpGet(url, { headers });
       baseUsed = base;
@@ -149,7 +149,7 @@ async function installBinary() {
     const sumActual = sha256(tarGz);
     if (sumActual.toLowerCase() !== sumExpected.toLowerCase())
       throw new Error("checksum mismatch");
-    console.log("postinstall: checksum OK");
+    console.error("postinstall: checksum OK");
   } catch (e) {
     console.warn(`postinstall: checksum skipped/failed: ${e.message}`);
   }
@@ -157,21 +157,20 @@ async function installBinary() {
   // extract only the binary into npm directory (archive contains binary at root)
   const tmpFile = path.join(os.tmpdir(), `${REPO}-${Date.now()}.tar.gz`);
   fs.writeFileSync(tmpFile, tarGz);
-  try {
-    const tarRes = spawnSync("tar", ["-xzf", tmpFile, "-C", outDir, exe], {
-      stdio: "inherit",
-    });
-    if (tarRes.status !== 0) {
-      try { fs.unlinkSync(binPath); } catch {}
-      throw new Error("postinstall: failed to extract binary");
-    }
-    try {
-      fs.chmodSync(binPath, 0o755);
-    } catch {}
-  } finally {
-    try { fs.unlinkSync(tmpFile); } catch {}
+  // stdout stays untouched: it carries the protocol when index.js installs on first run of a stdio server.
+  const tarRes = spawnSync("tar", ["-xzf", tmpFile, "-C", outDir, exe], {
+    stdio: ["ignore", 2, 2],
+  });
+  if (tarRes.status !== 0) {
+    throw new Error("postinstall: failed to extract binary");
   }
-  console.log(`postinstall: installed ${exe} to ${outDir}`);
+  try {
+    fs.chmodSync(binPath, 0o755);
+  } catch {}
+  try {
+    fs.unlinkSync(tmpFile);
+  } catch {}
+  console.error(`postinstall: installed ${exe} to ${outDir}`);
 }
 
 if (require.main === module) {

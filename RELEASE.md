@@ -7,7 +7,7 @@ This document describes how to create and publish a new release for `codex-oauth
 A release consists of three distribution channels:
 
 1. **GitHub Releases (GoReleaser)**: Triggered automatically via GitHub Actions when a git tag is pushed. Builds cross-platform binaries (Darwin, Linux, Windows for `amd64`, `arm64`, `armv7`), generates `checksums.txt`, and creates GitHub Release assets.
-2. **NPM Package (`npm/`)**: Published to the npm registry (`codex-oauth-proxy`). Its `postinstall.js` script downloads the corresponding prebuilt binary directly from the GitHub Release assets.
+2. **NPM Package (`npm/`)**: Published to the npm registry (`codex-oauth-proxy`) by the `npm` job in the **Release** workflow after GoReleaser finishes, using npm trusted publishing. The version comes from the tag. Its `postinstall.js` script downloads the corresponding prebuilt binary directly from the GitHub Release assets.
 3. **Docker Image**: The **Container image** GitHub Actions workflow automatically builds and publishes `linux/amd64` and `linux/arm64` images to GitHub Container Registry (`ghcr.io/dvcrn/codex-oauth-proxy`) on pushes to `main` and on all Git tag pushes.
 
 ---
@@ -26,29 +26,7 @@ just test
 just build
 ```
 
-### 2. Bump the NPM Package Version
-
-The npm package version in `npm/package.json` must match the release version so that `postinstall.js` downloads the correct binary from GitHub Releases:
-
-1. Update `"version"` in [`npm/package.json`](npm/package.json):
-
-   ```json
-   {
-     "name": "codex-oauth-proxy",
-     "version": "1.0.2",
-     ...
-   }
-   ```
-
-2. Commit and push the version bump to `main`:
-
-   ```bash
-   git add npm/package.json
-   git commit -m "chore: bump version to 1.0.2"
-   git push origin main
-   ```
-
-### 3. Create and Push the Git Tag
+### 2. Create and Push the Git Tag
 
 Tags use standard semver (past releases use `1.0.0`, `1.0.1`):
 
@@ -57,26 +35,16 @@ git tag 1.0.2
 git push origin 1.0.2
 ```
 
-### 4. Wait for GitHub Actions (GoReleaser)
+### 3. Verify the Release Workflow
 
-- Go to the **Actions** tab in GitHub and monitor the **Release** workflow triggered by the tag.
-- GoReleaser will:
-  - Compile binaries for all target architectures.
-  - Package `.tar.gz` archives and create `checksums.txt`.
-  - Publish the GitHub Release with an auto-generated changelog.
-- **Important:** Wait until this workflow successfully finishes before publishing to npm, as `npm install` requires the binaries to already exist on GitHub Releases.
-
-### 5. Publish to NPM
-
-Once the GitHub Release is live with its assets:
+The tag starts the **Release** workflow. GoReleaser builds the binaries, archives, and `checksums.txt` and publishes the GitHub Release. The `npm` job then sets `npm/package.json` to the tag version and publishes the wrapper. Do not run `npm publish` by hand for a version you are about to tag, or the CI publish fails.
 
 ```bash
-mise run publish
-# or directly:
-cd npm && npm publish
+gh run list --workflow release.yml --limit 1
+npm view codex-oauth-proxy@1.0.2 dist.attestations --json
 ```
 
-### 6. Verify Docker Publishing
+### 4. Verify Docker Publishing
 
 The Git tag push also starts the **Container image** workflow independently of GoReleaser. It builds and smoke tests the container before publishing the multi-platform image. No manual Docker publishing step or registry secret is required: the publishing job uses `GITHUB_TOKEN` with `packages: write` permission.
 
