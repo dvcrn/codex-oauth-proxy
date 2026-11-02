@@ -100,10 +100,10 @@ Upstream authentication uses Codex CLI OAuth credentials, selected via the `--cr
 
 The service includes a multi-stage Dockerfile for containerized deployment:
 
-- Builds with Go 1.23.4
+- Builds with Go 1.25.7, matching `go.mod`
 - Runs as non-root user (appuser)
-- Exposes port 8080
-- Includes GitHub Container Registry push configuration
+- Exposes port 9879
+- Publishes to GitHub Container Registry through `.github/workflows/container.yml`; `just docker-build` only builds and loads a local image
 
 After each code change or task, always run:
 

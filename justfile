@@ -37,20 +37,9 @@ test:
 clean:
 	rm -f codex-oauth-proxy
 
-# Build and push Docker image to GitHub Container Registry
+# Build and load a local Docker image; GitHub Actions handles publishing
 docker-build:
-	#!/usr/bin/env bash
-	# Use multiarch builder if available
-	if docker buildx ls | grep -q "^multiarch "; then
-		docker buildx use multiarch
-	fi
-
-	GITHUB_TOKEN=$(chainenv get CLAUDE_CODE_PROXY_GITHUB_REGISTRY_TOKEN) \
-	docker buildx build \
-		--platform linux/amd64,linux/arm64 \
-		--secret id=github_token,env=GITHUB_TOKEN \
-		-t ghcr.io/dvcrn/codex-oauth-proxy:latest \
-		. --push
+	docker buildx build --load --tag codex-oauth-proxy:local .
 
 # Build for Cloudflare Workers
 build-worker:

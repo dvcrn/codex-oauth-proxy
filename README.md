@@ -65,6 +65,25 @@ curl http://localhost:9879/v1/chat/completions \
 
 Point OpenAI-compatible clients at `http://localhost:9879/v1` and use the same admin key as their API key.
 
+## Docker images
+
+GitHub Actions builds and publishes images for `linux/amd64` and `linux/arm64` to `ghcr.io/dvcrn/codex-oauth-proxy`:
+
+| Git event | Image tags |
+| --- | --- |
+| Push to `main` | `main`, `sha-<full commit SHA>` |
+| Push a Git tag, e.g. `1.2.3` or `v1.2.3` | `1.2.3` or `v1.2.3`, plus `sha-<full commit SHA>` |
+| Pull request to `main` | Build and smoke test only; nothing is published |
+
+```bash
+docker pull ghcr.io/dvcrn/codex-oauth-proxy:main
+# Or select a release or commit:
+docker pull ghcr.io/dvcrn/codex-oauth-proxy:1.2.3
+docker pull "ghcr.io/dvcrn/codex-oauth-proxy:sha-$(git rev-parse HEAD)"
+```
+
+The image runs as a non-root user and listens on port `9879` by default. Supply `ADMIN_API_KEY` and OAuth credentials as described below. Git tag names are sanitized to valid Docker tags. Use `:main` for the moving branch build; no implicit `:latest` alias is published. See [RELEASE.md](RELEASE.md) for publishing details.
+
 ## Authentication
 
 There are two separate credentials:
