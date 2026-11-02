@@ -71,11 +71,11 @@ GitHub Actions builds and publishes images for `linux/amd64` and `linux/arm64` t
 
 | Git event | Image tags |
 | --- | --- |
-| Push to `main` | `main`, `sha-<full commit SHA>` |
-| Push a Git tag, e.g. `1.2.3` or `v1.2.3` | `1.2.3` or `v1.2.3`, plus `sha-<full commit SHA>` |
+| Push to `main` | `main`, `latest`, `sha-<full commit SHA>` |
+| Push a Git tag, e.g. `1.2.3` or `v1.2.3` | `1.2.3` or `v1.2.3`, `latest`, `sha-<full commit SHA>` |
 
 ```bash
-docker pull ghcr.io/dvcrn/codex-oauth-proxy:main
+docker pull ghcr.io/dvcrn/codex-oauth-proxy:latest
 # Or select a release or commit:
 docker pull ghcr.io/dvcrn/codex-oauth-proxy:1.2.3
 docker pull "ghcr.io/dvcrn/codex-oauth-proxy:sha-$(git rev-parse HEAD)"
@@ -84,10 +84,10 @@ docker pull "ghcr.io/dvcrn/codex-oauth-proxy:sha-$(git rev-parse HEAD)"
 ```bash
 docker run -p 9879:9879 -e ADMIN_API_KEY=your-secret \
   -v ~/.config/codex-oauth-proxy:/home/appuser/.config/codex-oauth-proxy \
-  ghcr.io/dvcrn/codex-oauth-proxy:main
+  ghcr.io/dvcrn/codex-oauth-proxy:latest
 ```
 
-The image runs as a non-root user and listens on port `9879` by default. Supply `ADMIN_API_KEY` and OAuth credentials as described below. Git tag names are sanitized to valid Docker tags. Use `:main` for the moving branch build; no implicit `:latest` alias is published. See [RELEASE.md](RELEASE.md) for publishing details.
+The image runs as a non-root user and listens on port `9879` by default. Supply `ADMIN_API_KEY` and OAuth credentials as described below. Git tag names are sanitized to valid Docker tags. `:latest` follows the most recent push to `main` or Git tag. See [RELEASE.md](RELEASE.md) for publishing details.
 
 ## Authentication
 
