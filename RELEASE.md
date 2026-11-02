@@ -8,7 +8,7 @@ A release consists of three distribution channels:
 
 1. **GitHub Releases (GoReleaser)**: Triggered automatically via GitHub Actions when a git tag is pushed. Builds cross-platform binaries (Darwin, Linux, Windows for `amd64`, `arm64`, `armv7`), generates `checksums.txt`, and creates GitHub Release assets.
 2. **NPM Package (`npm/`)**: Published to the npm registry (`codex-oauth-proxy`). Its `postinstall.js` script downloads the corresponding prebuilt binary directly from the GitHub Release assets.
-3. **Docker Image**: The **Container image** GitHub Actions workflow automatically builds and publishes `linux/amd64` and `linux/arm64` images to GitHub Container Registry (`ghcr.io/dvcrn/codex-oauth-proxy`) on pushes to `main` and on all Git tag pushes. Pull requests build and smoke test the image without publishing.
+3. **Docker Image**: The **Container image** GitHub Actions workflow automatically builds and publishes `linux/amd64` and `linux/arm64` images to GitHub Container Registry (`ghcr.io/dvcrn/codex-oauth-proxy`) on pushes to `main` and on all Git tag pushes.
 
 ---
 

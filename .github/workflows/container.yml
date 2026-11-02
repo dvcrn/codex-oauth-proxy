@@ -4,15 +4,13 @@ on:
   push:
     branches: [main]
     tags: ["**"]
-  pull_request:
-    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   verify:
@@ -57,7 +55,6 @@ jobs:
   publish:
     name: Publish to GHCR
     needs: verify
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

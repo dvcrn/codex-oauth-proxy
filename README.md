@@ -73,7 +73,6 @@ GitHub Actions builds and publishes images for `linux/amd64` and `linux/arm64` t
 | --- | --- |
 | Push to `main` | `main`, `sha-<full commit SHA>` |
 | Push a Git tag, e.g. `1.2.3` or `v1.2.3` | `1.2.3` or `v1.2.3`, plus `sha-<full commit SHA>` |
-| Pull request to `main` | Build and smoke test only; nothing is published |
 
 ```bash
 docker pull ghcr.io/dvcrn/codex-oauth-proxy:main
