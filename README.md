@@ -81,6 +81,12 @@ docker pull ghcr.io/dvcrn/codex-oauth-proxy:1.2.3
 docker pull "ghcr.io/dvcrn/codex-oauth-proxy:sha-$(git rev-parse HEAD)"
 ```
 
+```bash
+docker run -p 9879:9879 -e ADMIN_API_KEY=your-secret \
+  -v ~/.config/codex-oauth-proxy:/home/appuser/.config/codex-oauth-proxy \
+  ghcr.io/dvcrn/codex-oauth-proxy:main
+```
+
 The image runs as a non-root user and listens on port `9879` by default. Supply `ADMIN_API_KEY` and OAuth credentials as described below. Git tag names are sanitized to valid Docker tags. Use `:main` for the moving branch build; no implicit `:latest` alias is published. See [RELEASE.md](RELEASE.md) for publishing details.
 
 ## Authentication
