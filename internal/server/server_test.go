@@ -3,14 +3,125 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
 )
+
+func TestStreamingResponseHeaders(t *testing.T) {
+	const stream = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\ndata: [DONE]\n\n"
+	for _, convert := range []bool{false, true} {
+		for _, contentType := range []string{"", "text/plain; charset=utf-8", "text/event-stream", "text/event-stream; charset=utf-8"} {
+			t.Run(strconv.FormatBool(convert)+"/"+contentType, func(t *testing.T) {
+				writer := httptest.NewRecorder()
+				reader := strings.NewReader(stream)
+				body := io.NopCloser(headerReadFunc(func(p []byte) (int, error) {
+					if !writer.Flushed {
+						t.Error("stream headers must be flushed before reading upstream data")
+					}
+					return reader.Read(p)
+				}))
+				headers := http.Header{
+					"Content-Length": {strconv.Itoa(len(stream))},
+					"Cache-Control":  {"public, max-age=3600"}, "Connection": {"close"},
+				}
+				if contentType != "" {
+					headers.Set("Content-Type", contentType)
+				}
+				server := &Server{logger: zerolog.Nop()}
+				server.writeResponse(writer, &http.Response{Header: headers, Body: body}, http.StatusOK, modelGPT61Sol, convert, !convert)
+				response := writer.Result()
+				defer response.Body.Close()
+				if response.StatusCode != http.StatusOK {
+					t.Fatalf("status = %d", response.StatusCode)
+				}
+				for key, want := range map[string]string{
+					"Content-Type":  "text/event-stream; charset=utf-8",
+					"Cache-Control": "no-cache", "Connection": "keep-alive", "Content-Length": "",
+				} {
+					if got := response.Header.Get(key); got != want {
+						t.Errorf("%s = %q, want %q", key, got, want)
+					}
+				}
+				if !convert && writer.Body.String() != stream {
+					t.Fatal("native Responses SSE payload changed")
+				}
+				if convert && (!strings.Contains(writer.Body.String(), `"content":"OK"`) || !strings.Contains(writer.Body.String(), "data: [DONE]")) {
+					t.Fatal("Chat Completions SSE conversion failed")
+				}
+			})
+		}
+	}
+}
+
+type headerReadFunc func([]byte) (int, error)
+
+func (f headerReadFunc) Read(p []byte) (int, error) { return f(p) }
+
+func TestStreamingErrorLogMessageExcludesErrorDetails(t *testing.T) {
+	var output bytes.Buffer
+	server := &Server{logger: zerolog.New(&output)}
+	body := io.NopCloser(headerReadFunc(func([]byte) (int, error) {
+		return 0, errors.New("private-stream-error")
+	}))
+	server.writeResponse(httptest.NewRecorder(), &http.Response{
+		Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body,
+	}, http.StatusOK, modelGPT61Sol, true, false)
+
+	decoder := json.NewDecoder(&output)
+	found := false
+	for {
+		var event struct{ Level, Message, Error string }
+		if err := decoder.Decode(&event); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if event.Level == "error" {
+			found = true
+			if event.Message == "" || strings.Contains(event.Message, "private-stream-error") || !strings.Contains(event.Error, "private-stream-error") {
+				t.Fatalf("error details must stay in the filterable error field: %+v", event)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("stream read failure was not logged")
+	}
+}
+
+func TestUpstreamErrorResponseUnchanged(t *testing.T) {
+	for _, convert := range []bool{false, true} {
+		for _, status := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusInternalServerError} {
+			for _, contentType := range []string{"application/json", "text/plain; charset=utf-8"} {
+				t.Run(strconv.FormatBool(convert)+"/"+strconv.Itoa(status)+"/"+contentType, func(t *testing.T) {
+					payload := `{"error":{"message":"upstream rejected request"}}`
+					if strings.HasPrefix(contentType, "text/plain") {
+						payload = "upstream rejected request"
+					}
+					headers := http.Header{
+						"Content-Type": {contentType}, "Content-Length": {strconv.Itoa(len(payload))},
+						"Cache-Control": {"no-store"}, "Retry-After": {"7"},
+					}
+					writer := httptest.NewRecorder()
+					server := &Server{logger: zerolog.Nop()}
+					server.writeResponse(writer, &http.Response{Header: headers, Body: io.NopCloser(strings.NewReader(payload))}, status, modelGPT61Sol, convert, !convert)
+					response := writer.Result()
+					defer response.Body.Close()
+					if response.StatusCode != status || writer.Body.String() != payload || !reflect.DeepEqual(response.Header, headers) {
+						t.Fatal("upstream error status, headers or body changed")
+					}
+				})
+			}
+		}
+	}
+}
 
 func TestWriteResponseRepairsFinalResponsesOutput(t *testing.T) {
 	const body = "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"message\",\"id\":\"msg_1\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"hello\"}]}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n"

@@ -6,6 +6,49 @@ import (
 	"testing"
 )
 
+func TestResponsesRequestPreservesNames(t *testing.T) {
+	const text = "Zed Cline Roo GitHub Copilot Copilot Cursor Microsoft"
+	for _, instructions := range []string{"", "Keep the caller's instructions"} {
+		t.Run(instructions, func(t *testing.T) {
+			user := map[string]interface{}{"role": "user", "content": []interface{}{
+				map[string]interface{}{"type": "input_text", "text": text},
+			}}
+			toolResult := map[string]interface{}{
+				"type": "function_call_output", "call_id": "call_example", "output": text,
+			}
+			body := map[string]interface{}{
+				"instructions": instructions,
+				"input": []interface{}{
+					map[string]interface{}{"role": "system", "content": []interface{}{
+						map[string]interface{}{"type": "input_text", "text": text},
+					}},
+					user, toolResult,
+				},
+			}
+			transformResponsesRequestBody(body, modelGPT61Sol, "low")
+			want := []interface{}{
+				map[string]interface{}{"role": "user", "content": []interface{}{
+					map[string]interface{}{"type": "input_text", "text": text},
+				}},
+				map[string]interface{}{"type": "function_call_output", "call_id": "call_example", "output": text},
+			}
+			if instructions == "" {
+				if body["instructions"] != text {
+					t.Fatalf("instructions = %q, want %q", body["instructions"], text)
+				}
+			} else {
+				if body["instructions"] != instructions {
+					t.Fatalf("instructions = %q, want %q", body["instructions"], instructions)
+				}
+				want = append([]interface{}{map[string]interface{}{"role": "developer", "content": text}}, want...)
+			}
+			if !reflect.DeepEqual(body["input"], want) {
+				t.Fatalf("input = %#v, want %#v", body["input"], want)
+			}
+		})
+	}
+}
+
 func TestTransformResponsesRequestBody(t *testing.T) {
 	body := map[string]interface{}{
 		"instructions": "Please greet Zed.",
