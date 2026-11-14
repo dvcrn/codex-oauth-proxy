@@ -130,30 +130,56 @@ func (f responsesTestClient) Do(r *http.Request) (*http.Response, error) {
 	return f(r)
 }
 
-// responsesTestModelsFixture lists a model missing from the built-in table.
+// responsesTestModelsFixture lists models missing from the built-in table,
+// one of them with a slug that ends in an effort word.
 const responsesTestModelsFixture = `{"models":[
   {"slug":"gpt-7-nova","display_name":"GPT-7 Nova","visibility":"list","default_reasoning_level":"high",
-   "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]}
+   "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]},
+  {"slug":"gpt-7-codex-max","display_name":"GPT-7 Codex Max","visibility":"list","default_reasoning_level":"medium",
+   "supported_reasoning_levels":[{"effort":"medium"},{"effort":"max"}]}
 ]}`
 
 func TestHandlersKeepModelsListedUpstream(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		path    string
-		body    string
-		handler func(*Server, http.ResponseWriter, *http.Request)
+		name       string
+		path       string
+		body       string
+		handler    func(*Server, http.ResponseWriter, *http.Request)
+		wantModel  string
+		wantEffort string
 	}{
 		{
-			name:    "chat completions",
-			path:    "/v1/chat/completions",
-			body:    `{"model":"gpt-7-nova-max","messages":[{"role":"user","content":"Reply OK."}],"stream":true}`,
-			handler: (*Server).chatCompletionsHandler,
+			// "max" is not among the listed levels, so the upstream default applies.
+			name:       "chat completions with effort suffix",
+			path:       "/v1/chat/completions",
+			body:       `{"model":"gpt-7-nova-max","messages":[{"role":"user","content":"Reply OK."}],"stream":true}`,
+			handler:    (*Server).chatCompletionsHandler,
+			wantModel:  "gpt-7-nova",
+			wantEffort: "high",
 		},
 		{
-			name:    "responses",
-			path:    "/v1/responses",
-			body:    `{"model":"gpt-7-nova-max","input":"Reply OK.","stream":true}`,
-			handler: (*Server).responsesHandler,
+			name:       "responses with effort suffix",
+			path:       "/v1/responses",
+			body:       `{"model":"gpt-7-nova-max","input":"Reply OK.","stream":true}`,
+			handler:    (*Server).responsesHandler,
+			wantModel:  "gpt-7-nova",
+			wantEffort: "high",
+		},
+		{
+			name:       "slug ending in an effort word is not split",
+			path:       "/v1/responses",
+			body:       `{"model":"gpt-7-codex-max","input":"Reply OK.","stream":true}`,
+			handler:    (*Server).responsesHandler,
+			wantModel:  "gpt-7-codex-max",
+			wantEffort: "medium",
+		},
+		{
+			name:       "none passes through for catalog models",
+			path:       "/v1/chat/completions",
+			body:       `{"model":"gpt-7-nova","messages":[{"role":"user","content":"Reply OK."}],"reasoning_effort":"none","stream":true}`,
+			handler:    (*Server).chatCompletionsHandler,
+			wantModel:  "gpt-7-nova",
+			wantEffort: "none",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -176,13 +202,12 @@ func TestHandlersKeepModelsListedUpstream(t *testing.T) {
 			if w.Code != http.StatusOK {
 				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 			}
-			if outbound["model"] != "gpt-7-nova" {
-				t.Fatalf("outbound model = %v, want gpt-7-nova", outbound["model"])
+			if outbound["model"] != tc.wantModel {
+				t.Fatalf("outbound model = %v, want %s", outbound["model"], tc.wantModel)
 			}
-			// "max" is not among the listed levels, so the upstream default applies.
 			reasoning, ok := outbound["reasoning"].(map[string]interface{})
-			if !ok || reasoning["effort"] != "high" {
-				t.Fatalf("outbound reasoning = %v, want effort high", outbound["reasoning"])
+			if !ok || reasoning["effort"] != tc.wantEffort {
+				t.Fatalf("outbound reasoning = %v, want effort %s", outbound["reasoning"], tc.wantEffort)
 			}
 		})
 	}

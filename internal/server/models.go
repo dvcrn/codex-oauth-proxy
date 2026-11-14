@@ -68,6 +68,11 @@ var modelDefaultEffort = map[string]string{
 // is valid: lookups miss and callers fall back to the built-in model table.
 type modelCatalog map[string]upstreamModel
 
+func (c modelCatalog) lists(model string) bool {
+	_, ok := c[model]
+	return ok
+}
+
 func newModelCatalog(models []upstreamModel) modelCatalog {
 	catalog := make(modelCatalog, len(models))
 	for _, model := range models {
@@ -78,7 +83,8 @@ func newModelCatalog(models []upstreamModel) modelCatalog {
 
 // modelEffortPolicy returns the reasoning efforts a backend model accepts and
 // the effort to use when none is requested. The built-in table takes priority
-// because upstream omits "none"; models only upstream lists use its levels.
+// because upstream omits "none"; models only upstream lists use its levels,
+// plus "none" so that omission is not read as a restriction.
 func modelEffortPolicy(model string, catalog modelCatalog) ([]string, string) {
 	if allowed, ok := modelAllowedEfforts[model]; ok {
 		return allowed, modelDefaultEffort[model]
@@ -91,7 +97,7 @@ func modelEffortPolicy(model string, catalog modelCatalog) ([]string, string) {
 	if unsupportedWireEfforts[defaultEffort] {
 		defaultEffort = ""
 	}
-	return upstream.efforts(), defaultEffort
+	return append([]string{"none"}, upstream.efforts()...), defaultEffort
 }
 
 // modelMetadata mirrors the JSON schema required by the OpenAI-compatible

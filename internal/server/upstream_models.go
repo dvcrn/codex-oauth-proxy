@@ -18,6 +18,10 @@ const upstreamModelsURL = "https://chatgpt.com/backend-api/codex/models"
 // upstreamModelsTTL is how long a successful listing is reused.
 const upstreamModelsTTL = 5 * time.Minute
 
+// modelsFetchTimeout bounds a shared listing fetch, which outlives any single
+// caller's context.
+const modelsFetchTimeout = 30 * time.Second
+
 // modelLookupTimeout bounds the catalog lookup a proxied request may wait on.
 const modelLookupTimeout = 5 * time.Second
 
@@ -94,8 +98,8 @@ func (e *upstreamAuthError) Unwrap() error {
 // which drifts out of date as models are retired and would advertise IDs that
 // fail at call time.
 //
-// The fetch runs outside modelsCacheMu so a slow upstream does not block
-// callers that could be served from the cache.
+// Concurrent cache misses share one fetch, which runs outside modelsCacheMu
+// and is not cancelled when one waiting caller gives up.
 func (s *Server) fetchUpstreamModels(ctx context.Context) ([]upstreamModel, error) {
 	s.modelsCacheMu.Lock()
 	if s.modelsCache != nil && time.Now().Before(s.modelsCacheExpiry) {
@@ -105,6 +109,28 @@ func (s *Server) fetchUpstreamModels(ctx context.Context) ([]upstreamModel, erro
 	}
 	s.modelsCacheMu.Unlock()
 
+	if !shareFetchesAcrossRequests {
+		return s.refreshUpstreamModels(ctx)
+	}
+	fetch := s.modelsFetch.DoChan("models", func() (interface{}, error) {
+		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), modelsFetchTimeout)
+		defer cancel()
+		return s.refreshUpstreamModels(fetchCtx)
+	})
+	select {
+	case result := <-fetch:
+		if result.Err != nil {
+			return nil, result.Err
+		}
+		return result.Val.([]upstreamModel), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// refreshUpstreamModels fetches the listing and stores the visible models in
+// the cache.
+func (s *Server) refreshUpstreamModels(ctx context.Context) ([]upstreamModel, error) {
 	parsed, err := s.fetchUpstreamModelsWithRetry(ctx)
 	if err != nil {
 		return nil, err
@@ -219,12 +245,11 @@ func (s *Server) fetchUpstreamModelsOnce(ctx context.Context) (*upstreamModelsRe
 	return &parsed, resp.StatusCode, "", nil
 }
 
-// modelCatalogFor returns the live model catalog when requestedModel is not in
-// the built-in table, so normalization keeps any ID upstream serves. Built-in
-// IDs skip the lookup. A failed lookup returns nil, and normalization falls
+// modelCatalogFor returns the live model catalog when requestedModel is not
+// exactly a built-in ID, so normalization keeps any ID upstream serves. A failed lookup returns nil, and normalization falls
 // back to the built-in rewrites until modelLookupBackoff passes.
 func (s *Server) modelCatalogFor(ctx context.Context, requestedModel string) modelCatalog {
-	if isBuiltInModel(canonicalModelID(requestedModel)) {
+	if isBuiltInModel(strings.ToLower(strings.TrimSpace(requestedModel))) {
 		return nil
 	}
 
@@ -235,11 +260,15 @@ func (s *Server) modelCatalogFor(ctx context.Context, requestedModel string) mod
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, modelLookupTimeout)
+	lookupCtx, cancel := context.WithTimeout(ctx, modelLookupTimeout)
 	defer cancel()
-	models, err := s.fetchUpstreamModels(ctx)
+	models, err := s.fetchUpstreamModels(lookupCtx)
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("Failed to list upstream models for request normalization")
+		if ctx.Err() != nil {
+			// The client went away; that says nothing about upstream health.
+			return nil
+		}
 		s.modelsCacheMu.Lock()
 		s.modelsLookupRetryAt = time.Now().Add(modelLookupBackoff)
 		s.modelsCacheMu.Unlock()

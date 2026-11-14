@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/dvcrn/codex-oauth-proxy/internal/credentials"
 	"github.com/dvcrn/codex-oauth-proxy/internal/env"
 	"github.com/rs/zerolog"
@@ -53,6 +55,8 @@ type Server struct {
 	modelsCacheExpiry time.Time
 	// modelsLookupRetryAt delays request-path catalog lookups after a failure.
 	modelsLookupRetryAt time.Time
+	// modelsFetch shares one in-flight upstream listing between callers.
+	modelsFetch singleflight.Group
 }
 
 type Option func(*Server)
@@ -227,7 +231,7 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 	requestedModel := resolveRequestModel(requestData)
 	catalog := s.modelCatalogFor(r.Context(), requestedModel)
 	normalizedModel := normalizeModel(requestedModel, catalog)
-	reasoningEffort := resolveReasoningEffort(requestData)
+	reasoningEffort := resolveReasoningEffort(requestData, catalog)
 	normalizedReasoningEffort := normalizeReasoningEffort(reasoningEffort)
 
 	messageCount := 0
@@ -377,7 +381,8 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestedModel := resolveRequestModel(requestData)
-	requestedEffort := resolveReasoningEffort(requestData)
+	catalog := s.modelCatalogFor(r.Context(), requestedModel)
+	requestedEffort := resolveReasoningEffort(requestData, catalog)
 	inputCount := 0
 	if input, ok := requestData["input"].([]interface{}); ok {
 		inputCount = len(input)
@@ -386,7 +391,6 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 	clientStream, _ := requestData["stream"].(bool)
 
 	// Transform request body
-	catalog := s.modelCatalogFor(r.Context(), requestedModel)
 	normalizedModel, normalizedEffort := transformResponsesRequestBody(requestData, requestedModel, requestedEffort, catalog)
 	cacheKey, _ := requestData["prompt_cache_key"].(string)
 

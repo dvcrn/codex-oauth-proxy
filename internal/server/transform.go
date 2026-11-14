@@ -272,7 +272,7 @@ func resolveRequestModel(requestData map[string]interface{}) string {
 // the built-in table or the live catalog are kept; anything else is rewritten
 // to the closest built-in model or modelDefault.
 func normalizeModel(model string, catalog modelCatalog) string {
-	lower := canonicalModelID(model)
+	lower, _ := splitModelEffort(model, catalog)
 	if lower == "" {
 		return modelDefault
 	}
@@ -282,7 +282,7 @@ func normalizeModel(model string, catalog modelCatalog) string {
 	if isBuiltInModel(lower) {
 		return lower
 	}
-	if _, ok := catalog[lower]; ok {
+	if catalog.lists(lower) {
 		return lower
 	}
 
@@ -323,18 +323,23 @@ func normalizeModel(model string, catalog modelCatalog) string {
 
 // modelEffortSuffixes are the reasoning efforts a model ID may carry as a
 // suffix ("gpt-5.5-high"). Longest-first so "xhigh" is not mistaken for
-// "high". This assumes no served model's name ends in one of these words.
+// "high". Built-in model names must not end in one of these words.
 var modelEffortSuffixes = []string{"minimal", "medium", "xhigh", "high", "none", "low", "max"}
 
-// canonicalModelID lowercases a requested model ID and strips its effort suffix.
-func canonicalModelID(model string) string {
+// splitModelEffort lowercases a requested model ID and splits off its effort
+// suffix. An ID the catalog lists is kept whole, since a served slug may end in
+// an effort word ("gpt-5.1-codex-max").
+func splitModelEffort(model string, catalog modelCatalog) (id, effort string) {
 	lower := strings.ToLower(strings.TrimSpace(model))
+	if catalog.lists(lower) {
+		return lower, ""
+	}
 	for _, effort := range modelEffortSuffixes {
 		if strings.HasSuffix(lower, "-"+effort) {
-			return strings.TrimSuffix(lower, "-"+effort)
+			return strings.TrimSuffix(lower, "-"+effort), effort
 		}
 	}
-	return lower
+	return lower, ""
 }
 
 func isBuiltInModel(model string) bool {
@@ -374,7 +379,7 @@ func resolveServiceTier(requestData map[string]interface{}) string {
 	return strings.TrimSpace(tier)
 }
 
-func resolveReasoningEffort(requestData map[string]interface{}) string {
+func resolveReasoningEffort(requestData map[string]interface{}, catalog modelCatalog) string {
 	if effort, ok := requestData["reasoning_effort"].(string); ok {
 		effort = strings.TrimSpace(effort)
 		if effort != "" {
@@ -390,16 +395,9 @@ func resolveReasoningEffort(requestData map[string]interface{}) string {
 		}
 	}
 
-	if model, ok := requestData["model"].(string); ok {
-		lowerModel := strings.ToLower(strings.TrimSpace(model))
-		for _, effort := range modelEffortSuffixes {
-			if strings.HasSuffix(lowerModel, "-"+effort) {
-				return effort
-			}
-		}
-	}
-
-	return ""
+	model, _ := requestData["model"].(string)
+	_, effort := splitModelEffort(model, catalog)
+	return effort
 }
 
 func resolveReasoningSummary(requestData map[string]interface{}) interface{} {
@@ -412,7 +410,7 @@ func resolveReasoningSummary(requestData map[string]interface{}) interface{} {
 }
 
 func buildReasoningSettings(requestData map[string]interface{}, catalog modelCatalog) map[string]interface{} {
-	requestedEffort := resolveReasoningEffort(requestData)
+	requestedEffort := resolveReasoningEffort(requestData, catalog)
 	normalizedEffort := normalizeReasoningEffort(requestedEffort)
 	backendModel := normalizeModel(resolveRequestModel(requestData), catalog)
 	clampedEffort := clampReasoningEffortForModel(normalizedEffort, backendModel, catalog)

@@ -2,12 +2,15 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -421,7 +424,7 @@ func TestModelCatalogForLookupPolicy(t *testing.T) {
 		stub := &stubModelsHTTPClient{body: upstreamModelsFixture}
 		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
 
-		assert.Nil(t, srv.modelCatalogFor(t.Context(), "GPT-5.5-high"))
+		assert.Nil(t, srv.modelCatalogFor(t.Context(), " GPT-5.5 "))
 		assert.Equal(t, 0, stub.calls)
 	})
 
@@ -436,4 +439,64 @@ func TestModelCatalogForLookupPolicy(t *testing.T) {
 		assert.Nil(t, srv.modelCatalogFor(t.Context(), "gpt-7-nova"))
 		assert.Equal(t, 1, stub.calls, "a second lookup inside the backoff must not refetch")
 	})
+
+	t.Run("cancelled caller does not start the backoff", func(t *testing.T) {
+		stub := &stubModelsHTTPClient{statusCode: http.StatusBadGateway}
+		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+
+		assert.Nil(t, srv.modelCatalogFor(ctx, "gpt-7-nova"))
+		assert.True(t, srv.modelsLookupRetryAt.IsZero())
+	})
+}
+
+// blockingModelsHTTPClient holds every models request until release is closed.
+type blockingModelsHTTPClient struct {
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (c *blockingModelsHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	c.calls.Add(1)
+	<-c.release
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(upstreamModelsFixture)),
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
+}
+
+func TestFetchUpstreamModelsSharesOneFetch(t *testing.T) {
+	stub := &blockingModelsHTTPClient{release: make(chan struct{})}
+	srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
+
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancelledErr := make(chan error, 1)
+	go func() {
+		_, err := srv.fetchUpstreamModels(cancelled)
+		cancelledErr <- err
+	}()
+	require.Eventually(t, func() bool { return stub.calls.Load() == 1 }, time.Second, time.Millisecond)
+
+	const waiters = 3
+	results := make(chan []upstreamModel, waiters)
+	for range waiters {
+		go func() {
+			models, err := srv.fetchUpstreamModels(t.Context())
+			assert.NoError(t, err)
+			results <- models
+		}()
+	}
+
+	cancel()
+	assert.ErrorIs(t, <-cancelledErr, context.Canceled)
+	close(stub.release)
+
+	for range waiters {
+		assert.Len(t, <-results, 2)
+	}
+	assert.Equal(t, int32(1), stub.calls.Load())
+	assert.Len(t, srv.modelsCache, 2, "the fetch must outlive the caller that started it")
 }

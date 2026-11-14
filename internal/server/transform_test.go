@@ -195,7 +195,7 @@ func TestNormalizeModel(t *testing.T) {
 }
 
 func TestNormalizeModelKeepsCatalogModels(t *testing.T) {
-	catalog := newModelCatalog([]upstreamModel{{Slug: "gpt-7-nova"}})
+	catalog := newModelCatalog([]upstreamModel{{Slug: "gpt-7-nova"}, {Slug: "gpt-7-codex-max"}})
 	testCases := []struct {
 		name     string
 		input    string
@@ -203,6 +203,7 @@ func TestNormalizeModelKeepsCatalogModels(t *testing.T) {
 	}{
 		{"listed model", "gpt-7-nova", "gpt-7-nova"},
 		{"listed model with effort suffix", " GPT-7-NOVA-HIGH ", "gpt-7-nova"},
+		{"listed slug ending in an effort word", "gpt-7-codex-max", "gpt-7-codex-max"},
 		{"built-in model", "gpt-6.1-terra-max", modelGPT61Terra},
 		{"unlisted model", "gpt-7-luna", modelDefault},
 	}
@@ -395,6 +396,7 @@ func TestClampReasoningEffortForCatalogModel(t *testing.T) {
 		{"upstream default when empty", "gpt-7-nova", "", "high"},
 		{"listed effort kept", "gpt-7-nova", "low", "low"},
 		{"unlisted effort -> upstream default", "gpt-7-nova", "max", "high"},
+		{"none is allowed although upstream omits it", "gpt-7-nova", "none", "none"},
 		{"wire-unsupported upstream default is dropped", "gpt-7-ultra", "", ""},
 		{"built-in table wins over upstream", modelGPT55, "none", "none"},
 		{"built-in default wins over upstream", modelGPT55, "", "medium"},
