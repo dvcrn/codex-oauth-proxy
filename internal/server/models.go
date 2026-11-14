@@ -20,6 +20,7 @@ const (
 	modelGPT6Astra    = "gpt-6-astra"
 	modelGPT6Sol      = "gpt-6-sol"
 	modelGPT61Sol     = "gpt-6.1-sol"
+	modelGPT61Terra   = "gpt-6.1-terra"
 	modelGPT6Luna     = "gpt-6-luna"
 	modelDaybreakBlue = "gpt-daybreak-blue-latest"
 
@@ -41,6 +42,7 @@ var modelAllowedEfforts = map[string][]string{
 	modelGPT6Astra:    {"low", "medium", "high", "xhigh", "max"},
 	modelGPT6Sol:      {"low", "medium", "high", "xhigh", "max"},
 	modelGPT61Sol:     {"low", "medium", "high", "xhigh", "max"},
+	modelGPT61Terra:   {"low", "medium", "high", "xhigh", "max"},
 	modelGPT6Luna:     {"low", "medium", "high", "xhigh", "max"},
 	modelDaybreakBlue: {"none", "low", "medium", "high", "xhigh", "max"},
 }
@@ -57,6 +59,7 @@ var modelDefaultEffort = map[string]string{
 	modelGPT6Astra:    "medium",
 	modelGPT6Sol:      "medium",
 	modelGPT61Sol:     "low",
+	modelGPT61Terra:   "low",
 	modelGPT6Luna:     "medium",
 	modelDaybreakBlue: "low",
 }
