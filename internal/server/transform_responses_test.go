@@ -1,9 +1,53 @@
 package server
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestResponsesRequestPreservesNames(t *testing.T) {
+	const text = "Zed Cline Roo GitHub Copilot Copilot Cursor Microsoft"
+	for _, instructions := range []string{"", "Keep the caller's instructions"} {
+		t.Run(instructions, func(t *testing.T) {
+			user := map[string]interface{}{"role": "user", "content": []interface{}{
+				map[string]interface{}{"type": "input_text", "text": text},
+			}}
+			toolResult := map[string]interface{}{
+				"type": "function_call_output", "call_id": "call_example", "output": text,
+			}
+			body := map[string]interface{}{
+				"instructions": instructions,
+				"input": []interface{}{
+					map[string]interface{}{"role": "system", "content": []interface{}{
+						map[string]interface{}{"type": "input_text", "text": text},
+					}},
+					user, toolResult,
+				},
+			}
+			transformResponsesRequestBody(body, modelGPT61Sol, "low")
+			want := []interface{}{
+				map[string]interface{}{"role": "user", "content": []interface{}{
+					map[string]interface{}{"type": "input_text", "text": text},
+				}},
+				map[string]interface{}{"type": "function_call_output", "call_id": "call_example", "output": text},
+			}
+			if instructions == "" {
+				if body["instructions"] != text {
+					t.Fatalf("instructions = %q, want %q", body["instructions"], text)
+				}
+			} else {
+				if body["instructions"] != instructions {
+					t.Fatalf("instructions = %q, want %q", body["instructions"], instructions)
+				}
+				want = append([]interface{}{map[string]interface{}{"role": "developer", "content": text}}, want...)
+			}
+			if !reflect.DeepEqual(body["input"], want) {
+				t.Fatalf("input = %#v, want %#v", body["input"], want)
+			}
+		})
+	}
+}
 
 func TestTransformResponsesRequestBody(t *testing.T) {
 	body := map[string]interface{}{
@@ -32,8 +76,8 @@ func TestTransformResponsesRequestBody(t *testing.T) {
 	}
 
 	instr, _ := body["instructions"].(string)
-	if instr == "" || containsSubstring(instr, "Please greet Codex.") {
-		t.Fatalf("instructions should be canonical prefix and not include user text, got %q", instr)
+	if instr != "Please greet Zed." {
+		t.Fatalf("instructions changed, got %q", instr)
 	}
 
 	input := body["input"].([]interface{})
@@ -48,14 +92,14 @@ func TestTransformResponsesRequestBody(t *testing.T) {
 			continue
 		}
 		if item, ok := content[0].(map[string]interface{}); ok {
-			if txt, _ := item["text"].(string); txt == "Hello from Codex" {
+			if txt, _ := item["text"].(string); txt == "Hello from Zed" {
 				found = true
 				break
 			}
 		}
 	}
 	if !found {
-		t.Fatalf("expected to find replaced user text 'Hello from Codex' in input messages; got %v", body["input"])
+		t.Fatalf("expected to find unchanged user text 'Hello from Zed' in input messages; got %v", body["input"])
 	}
 
 	reasoning, ok := body["reasoning"].(map[string]interface{})
@@ -101,8 +145,40 @@ func TestTransformResponsesRequestBody(t *testing.T) {
 	}
 }
 
-func containsSubstring(s, substr string) bool {
-	return strings.Contains(s, substr)
+func TestTransformResponsesStringInput(t *testing.T) {
+	const instructions = "Keep the caller's text"
+	for _, text := range []string{"Compare Microsoft and Cursor", "Describe the weather on Mars", "  Keep surrounding whitespace  "} {
+		for _, explicitKey := range []string{"", "client-provided"} {
+			t.Run(text+"/"+explicitKey, func(t *testing.T) {
+				body := map[string]interface{}{"input": text, "instructions": instructions}
+				if explicitKey != "" {
+					body["prompt_cache_key"] = explicitKey
+				}
+				model, _ := transformResponsesRequestBody(body, modelGPT61Sol, "low")
+				want := []interface{}{map[string]interface{}{
+					"role": "user", "content": []interface{}{
+						map[string]interface{}{"type": "input_text", "text": text},
+					},
+				}}
+				if !reflect.DeepEqual(body["input"], want) {
+					t.Errorf("input = %#v, want %#v", body["input"], want)
+				}
+				if got := extractFirstUserText(body); got != text {
+					t.Errorf("first user text = %q, want %q", got, text)
+				}
+				wantKey := explicitKey
+				if wantKey == "" {
+					wantKey = derivePromptCacheKey(model, instructions, text)
+				}
+				if body["prompt_cache_key"] != wantKey {
+					t.Errorf("prompt_cache_key = %v, want %q", body["prompt_cache_key"], wantKey)
+				}
+				if body["store"] != false || body["stream"] != true {
+					t.Error("Codex requests must disable storage and enable streaming")
+				}
+			})
+		}
+	}
 }
 
 func TestTransformResponsesRequestBodyGPT6Models(t *testing.T) {
