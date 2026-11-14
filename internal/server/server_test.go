@@ -1,12 +1,15 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/iotest"
 
 	"github.com/rs/zerolog"
 )
@@ -155,5 +158,34 @@ func TestResponsesHandlerNonStreamingFailedResponse(t *testing.T) {
 	s.responsesHandler(w, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.6-luna","input":"hello"}`)))
 	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/json" || !strings.Contains(w.Body.String(), `"status":"failed"`) {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+}
+
+func TestStreamingErrorLogMessageExcludesErrorDetails(t *testing.T) {
+	var output bytes.Buffer
+	server := &Server{logger: zerolog.New(&output)}
+	body := io.NopCloser(iotest.ErrReader(errors.New("private-stream-error")))
+	server.writeResponse(httptest.NewRecorder(), &http.Response{
+		Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body,
+	}, http.StatusOK, modelGPT61Sol, true, false)
+
+	decoder := json.NewDecoder(&output)
+	found := false
+	for {
+		var event struct{ Level, Message, Error string }
+		if err := decoder.Decode(&event); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if event.Level == "error" {
+			found = true
+			if event.Message == "" || strings.Contains(event.Message, "private-stream-error") || !strings.Contains(event.Error, "private-stream-error") {
+				t.Fatalf("error details must stay in the filterable error field: %+v", event)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("stream read failure was not logged")
 	}
 }

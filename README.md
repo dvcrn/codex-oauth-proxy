@@ -169,10 +169,12 @@ Call `ask_codex_models` first when the model ID is not already known. Reasoning 
 | --- | --- | --- |
 | `ADMIN_API_KEY` | required | Key used to protect generation, admin, and MCP requests |
 | `PORT` | `9879` | Listening port |
-| `ENV` | `development` | Use `production` for JSON logs |
+| `ENV` | `development` | Use `production` for JSON logs at info level and above |
 | `DISABLE_HEALTH_LOGS` | `false` | Disable request logs for `/health` |
 | `--creds-store` | `auto` | Credential source for normal Codex CLI logins: `auto`, `xdg`, or `legacy` |
 | `--creds-path` | platform default | Credential file for `xdg` or `legacy` mode |
+
+Production logs retain only explicitly allowlisted operational metadata; all other fields are dropped. Development logs can include sensitive data; use `ENV=production` for shared or persistent log storage.
 
 ## Deploy to Cloudflare Workers
 

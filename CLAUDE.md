@@ -8,18 +8,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Go proxy server that translates OpenAI-compatible chat completions requests into ChatGPT Codex's Responses API format. It accepts requests in the OpenAI Chat Completions / Responses format and forwards them to the upstream ChatGPT Codex backend (`https://chatgpt.com/backend-api/codex/responses`) with appropriate transformations, using Codex CLI OAuth credentials and headers.
 
-The server uses zerolog for structured JSON logging with zero allocations and high performance.
-
 ## Common Development Commands
 
 ### Building and Running
 
 ```bash
-# Build the binary
-mise run build
+# Format and build the binary
+just build
 
-# Run tests
-mise run test
+# Run native tests
+just test
+
+# Run logger tests with Workers bindings (requires Node.js)
+just test-logger-workers
 ```
 
 ### Releasing
@@ -115,39 +116,9 @@ This automatically formats the code with goimports and then builds the Go server
 
 ## Logging
 
-The server uses [zerolog](https://github.com/rs/zerolog) for structured logging:
+The server uses [zerolog](https://github.com/rs/zerolog) for structured logging. Use `ENV=production` for shared or persistent log storage: it emits info-level-and-above JSON containing only allowlisted operational metadata. Development logging is verbose console output and may contain sensitive data.
 
-### Configuration
-
-- UNIX timestamp format for performance (`zerolog.TimeFormatUnix`)
-- JSON output to stderr for structured log parsing
-- Each server instance maintains its own logger with timestamps
-
-### Log Levels
-
-- `Info`: Request/response lifecycle, server startup
-- `Warn`: Unhandled routes, non-critical issues
-- `Error`: Request processing errors, API communication failures  
-- `Debug`: Detailed request dumps and transformation data (when enabled)
-- `Fatal`: Critical startup failures (missing environment variables)
-
-### Structured Fields
-
-Common fields used throughout the application:
-
-- `method`: HTTP method
-- `uri`: Request URI
-- `remote_addr`: Client IP address
-- `user_agent`: Client user agent
-- `duration`: Request processing time
-- `error`: Error details using `.Err(err)`
-
-### Example Log Output
-
-```json
-{"level":"info","time":1516134303,"method":"POST","uri":"/v1/responses","remote_addr":"127.0.0.1:54321","user_agent":"curl/7.68.0","message":"Incoming request"}
-{"level":"info","time":1516134304,"method":"POST","uri":"/v1/responses","duration":1023,"message":"Finished request"}
-```
+Keep messages static and place dynamic details in structured fields so the production filter can remove them. Arbitrary error strings and unvalidated request text can contain secrets; do not allowlist them to improve diagnostics.
 
 ## Code Organization Principles
 

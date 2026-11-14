@@ -33,6 +33,10 @@ format:
 test:
 	go test -v ./...
 
+# Exercise Workers bindings independently of the Go process environment.
+test-logger-workers:
+	GOOS=js GOARCH=wasm NODE_OPTIONS='--require="{{justfile_directory()}}/internal/logger/testdata/worker-env.cjs"' go test -exec "$(go env GOROOT)/lib/wasm/go_js_wasm_exec" -count=1 -v ./internal/logger
+
 # Clean build artifacts
 clean:
 	rm -f codex-oauth-proxy

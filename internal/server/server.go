@@ -746,7 +746,7 @@ func (s *Server) writeResponse(w http.ResponseWriter, resp *http.Response, statu
 
 		if convertSSE {
 			if err := RewriteSSEStreamWithCallback(resp.Body, out, model, debugFn); err != nil {
-				s.logger.Error().Err(err).Msg(fmt.Sprintf("Error rewriting SSE stream: %v", err))
+				s.logger.Error().Err(err).Msg("Error rewriting SSE stream")
 				return
 			}
 		} else {
