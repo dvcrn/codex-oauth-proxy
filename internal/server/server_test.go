@@ -30,6 +30,70 @@ func TestWriteResponseRepairsFinalResponsesOutput(t *testing.T) {
 	}
 }
 
+func TestChatCompletionsHandlerForwardsGPT61TerraModelAndEffort(t *testing.T) {
+	var outbound map[string]interface{}
+	s := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}}
+	s.httpClient = responsesTestClient(func(r *http.Request) (*http.Response, error) {
+		if err := json.NewDecoder(r.Body).Decode(&outbound); err != nil {
+			t.Fatal(err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader("data: [DONE]\n\n")),
+		}, nil
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(
+		`{"model":"gpt-6.1-terra","messages":[{"role":"user","content":"Reply OK."}],"reasoning_effort":"max","stream":true}`,
+	))
+	s.chatCompletionsHandler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if outbound["model"] != modelGPT61Terra {
+		t.Fatalf("outbound model = %v, want %q", outbound["model"], modelGPT61Terra)
+	}
+	reasoning, ok := outbound["reasoning"].(map[string]interface{})
+	if !ok || reasoning["effort"] != "max" {
+		t.Fatalf("outbound reasoning = %v, want effort max", outbound["reasoning"])
+	}
+}
+
+func TestResponsesHandlerForwardsGPT61TerraModelAndEffort(t *testing.T) {
+	var outbound map[string]interface{}
+	s := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}}
+	s.httpClient = responsesTestClient(func(r *http.Request) (*http.Response, error) {
+		if err := json.NewDecoder(r.Body).Decode(&outbound); err != nil {
+			t.Fatal(err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader("event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n")),
+		}, nil
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(
+		`{"model":"gpt-6.1-terra","input":"Reply OK.","reasoning":{"effort":"max"},"stream":true}`,
+	))
+	s.responsesHandler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if outbound["model"] != modelGPT61Terra {
+		t.Fatalf("outbound model = %v, want %q", outbound["model"], modelGPT61Terra)
+	}
+	reasoning, ok := outbound["reasoning"].(map[string]interface{})
+	if !ok || reasoning["effort"] != "max" {
+		t.Fatalf("outbound reasoning = %v, want effort max", outbound["reasoning"])
+	}
+}
+
 func TestWriteResponseResponsesStreamWithoutUpstreamContentType(t *testing.T) {
 	const body = "event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n"
 	s := &Server{logger: zerolog.Nop()}
