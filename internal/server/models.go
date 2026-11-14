@@ -64,6 +64,36 @@ var modelDefaultEffort = map[string]string{
 	modelDaybreakBlue: "low",
 }
 
+// modelCatalog indexes the live upstream model listing by slug. A nil catalog
+// is valid: lookups miss and callers fall back to the built-in model table.
+type modelCatalog map[string]upstreamModel
+
+func newModelCatalog(models []upstreamModel) modelCatalog {
+	catalog := make(modelCatalog, len(models))
+	for _, model := range models {
+		catalog[model.Slug] = model
+	}
+	return catalog
+}
+
+// modelEffortPolicy returns the reasoning efforts a backend model accepts and
+// the effort to use when none is requested. The built-in table takes priority
+// because upstream omits "none"; models only upstream lists use its levels.
+func modelEffortPolicy(model string, catalog modelCatalog) ([]string, string) {
+	if allowed, ok := modelAllowedEfforts[model]; ok {
+		return allowed, modelDefaultEffort[model]
+	}
+	upstream, ok := catalog[model]
+	if !ok {
+		return nil, ""
+	}
+	defaultEffort := upstream.DefaultReasoningLevel
+	if unsupportedWireEfforts[defaultEffort] {
+		defaultEffort = ""
+	}
+	return upstream.efforts(), defaultEffort
+}
+
 // modelMetadata mirrors the JSON schema required by the OpenAI-compatible
 // /v1/models endpoint. The structure intentionally keeps nested fields as
 // generic maps to simplify aligning with the upstream payload shape and to

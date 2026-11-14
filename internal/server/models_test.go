@@ -78,7 +78,7 @@ func TestModelsFromUpstreamIncludesGPT6Variants(t *testing.T) {
 			if !seen[base+suffix] {
 				t.Errorf("expected %q to be advertised", base+suffix)
 			}
-			if got := normalizeModel(base + suffix); got != base {
+			if got := normalizeModel(base+suffix, nil); got != base {
 				t.Errorf("advertised model %q normalized to %q, want %q", base+suffix, got, base)
 			}
 		}

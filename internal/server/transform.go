@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 )
 
@@ -133,11 +134,14 @@ func transformMessages(requestData map[string]interface{}) ([]interface{}, error
 // buildCodexRequestBody transforms an OpenAI Chat Completions style request
 // into the ChatGPT Codex backend body. This should be kept aligned with
 // recorded requests under Raw_*/[11] Request - chatgpt.com_backend-api_codex_responses.txt
-func buildCodexRequestBody(requestData map[string]interface{}) map[string]interface{} {
+//
+// catalog is the live upstream listing used to keep model IDs the built-in
+// table does not know; nil falls back to built-in normalization only.
+func buildCodexRequestBody(requestData map[string]interface{}, catalog modelCatalog) map[string]interface{} {
 	instructions := extractInstructions(requestData)
 
 	resolvedModel := resolveRequestModel(requestData)
-	normalizedModel := normalizeModel(resolvedModel)
+	normalizedModel := normalizeModel(resolvedModel, catalog)
 	body := map[string]interface{}{}
 	body["model"] = normalizedModel
 	body["instructions"] = instructions
@@ -167,7 +171,7 @@ func buildCodexRequestBody(requestData map[string]interface{}) map[string]interf
 	}
 
 	// Reasoning settings (default effort none -> medium equivalent)
-	body["reasoning"] = buildReasoningSettings(requestData)
+	body["reasoning"] = buildReasoningSettings(requestData, catalog)
 
 	// Include fields requested in capture
 	body["include"] = []interface{}{"reasoning.encrypted_content"}
@@ -264,24 +268,21 @@ func resolveRequestModel(requestData map[string]interface{}) string {
 	return modelDefault
 }
 
-func normalizeModel(model string) string {
-	lower := strings.ToLower(strings.TrimSpace(model))
-	// Longest-first so "-xhigh" is not mistaken for "-high". Note this assumes
-	// no served model's name ends in one of these words.
-	for _, effort := range []string{"-minimal", "-medium", "-xhigh", "-high", "-none", "-low", "-max"} {
-		if strings.HasSuffix(lower, effort) {
-			lower = strings.TrimSuffix(lower, effort)
-			break
-		}
-	}
+// normalizeModel maps a requested model ID onto one the backend serves. IDs in
+// the built-in table or the live catalog are kept; anything else is rewritten
+// to the closest built-in model or modelDefault.
+func normalizeModel(model string, catalog modelCatalog) string {
+	lower := canonicalModelID(model)
 	if lower == "" {
 		return modelDefault
 	}
 
-	// Exact matches on currently-served models first, so a valid ID is never
-	// rewritten by the looser prefix matching below.
-	switch lower {
-	case modelGPT53Spark, modelGPT54Mini, modelGPT55, modelGPT5Sol, modelGPT5Terra, modelGPT5Luna, modelGPT6Astra, modelGPT6Sol, modelGPT61Sol, modelGPT61Terra, modelGPT6Luna, modelDaybreakBlue:
+	// Exact matches first, so a valid ID is never rewritten by the looser
+	// prefix matching below.
+	if isBuiltInModel(lower) {
+		return lower
+	}
+	if _, ok := catalog[lower]; ok {
 		return lower
 	}
 
@@ -318,6 +319,30 @@ func normalizeModel(model string) string {
 	}
 
 	return modelDefault
+}
+
+// modelEffortSuffixes are the reasoning efforts a model ID may carry as a
+// suffix ("gpt-5.5-high"). Longest-first so "xhigh" is not mistaken for
+// "high". This assumes no served model's name ends in one of these words.
+var modelEffortSuffixes = []string{"minimal", "medium", "xhigh", "high", "none", "low", "max"}
+
+// canonicalModelID lowercases a requested model ID and strips its effort suffix.
+func canonicalModelID(model string) string {
+	lower := strings.ToLower(strings.TrimSpace(model))
+	for _, effort := range modelEffortSuffixes {
+		if strings.HasSuffix(lower, "-"+effort) {
+			return strings.TrimSuffix(lower, "-"+effort)
+		}
+	}
+	return lower
+}
+
+func isBuiltInModel(model string) bool {
+	switch model {
+	case modelGPT53Spark, modelGPT54Mini, modelGPT55, modelGPT5Sol, modelGPT5Terra, modelGPT5Luna, modelGPT6Astra, modelGPT6Sol, modelGPT61Sol, modelGPT61Terra, modelGPT6Luna, modelDaybreakBlue:
+		return true
+	}
+	return false
 }
 
 func normalizeReasoningEffort(effort string) string {
@@ -367,7 +392,7 @@ func resolveReasoningEffort(requestData map[string]interface{}) string {
 
 	if model, ok := requestData["model"].(string); ok {
 		lowerModel := strings.ToLower(strings.TrimSpace(model))
-		for _, effort := range []string{"minimal", "medium", "xhigh", "high", "none", "low", "max"} {
+		for _, effort := range modelEffortSuffixes {
 			if strings.HasSuffix(lowerModel, "-"+effort) {
 				return effort
 			}
@@ -386,11 +411,11 @@ func resolveReasoningSummary(requestData map[string]interface{}) interface{} {
 	return "auto"
 }
 
-func buildReasoningSettings(requestData map[string]interface{}) map[string]interface{} {
+func buildReasoningSettings(requestData map[string]interface{}, catalog modelCatalog) map[string]interface{} {
 	requestedEffort := resolveReasoningEffort(requestData)
 	normalizedEffort := normalizeReasoningEffort(requestedEffort)
-	backendModel := normalizeModel(resolveRequestModel(requestData))
-	clampedEffort := clampReasoningEffortForModel(normalizedEffort, backendModel)
+	backendModel := normalizeModel(resolveRequestModel(requestData), catalog)
+	clampedEffort := clampReasoningEffortForModel(normalizedEffort, backendModel, catalog)
 	summary := resolveReasoningSummary(requestData)
 	settings := map[string]interface{}{}
 	if clampedEffort != "" {
@@ -413,28 +438,18 @@ func modelSupportsReasoningEffort(backendModel, effort string) bool {
 
 // clampReasoningEffortForModel enforces per-model reasoning effort limits and
 // applies model-specific defaults when no explicit effort is provided.
-func clampReasoningEffortForModel(effort, backendModel string) string {
+func clampReasoningEffortForModel(effort, backendModel string, catalog modelCatalog) string {
 	effort = strings.TrimSpace(effort)
-	backendModel = strings.TrimSpace(backendModel)
+	allowed, defaultEffort := modelEffortPolicy(strings.TrimSpace(backendModel), catalog)
 
-	// If nothing specified, fall back to a model default (if any).
 	if effort == "" {
-		if def, ok := modelDefaultEffort[backendModel]; ok {
-			return def
-		}
-		return ""
+		return defaultEffort
 	}
-
-	allowed, ok := modelAllowedEfforts[backendModel]
-	if !ok || len(allowed) == 0 {
+	if len(allowed) == 0 || slices.Contains(allowed, effort) {
 		return effort
 	}
-	if modelSupportsReasoningEffort(backendModel, effort) {
-		return effort
-	}
-
-	if def, ok := modelDefaultEffort[backendModel]; ok && def != "" {
-		return def
+	if defaultEffort != "" {
+		return defaultEffort
 	}
 	return effort
 }

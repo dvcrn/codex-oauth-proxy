@@ -189,7 +189,27 @@ func TestNormalizeModel(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, normalizeModel(tc.input))
+			assert.Equal(t, tc.expected, normalizeModel(tc.input, nil))
+		})
+	}
+}
+
+func TestNormalizeModelKeepsCatalogModels(t *testing.T) {
+	catalog := newModelCatalog([]upstreamModel{{Slug: "gpt-7-nova"}})
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"listed model", "gpt-7-nova", "gpt-7-nova"},
+		{"listed model with effort suffix", " GPT-7-NOVA-HIGH ", "gpt-7-nova"},
+		{"built-in model", "gpt-6.1-terra-max", modelGPT61Terra},
+		{"unlisted model", "gpt-7-luna", modelDefault},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, normalizeModel(tc.input, catalog))
 		})
 	}
 }
@@ -265,7 +285,7 @@ func TestBuildCodexRequestBodyUsesOnlyCallerInstructions(t *testing.T) {
 		},
 	}
 
-	body := buildCodexRequestBody(request)
+	body := buildCodexRequestBody(request, nil)
 	assert.Equal(t, "Keep answers brief.", body["instructions"])
 
 	encoded, err := json.Marshal(body)
@@ -282,7 +302,7 @@ func TestBuildCodexRequestBodyOmitsSyntheticDeveloperMessage(t *testing.T) {
 		},
 	}
 
-	body := buildCodexRequestBody(request)
+	body := buildCodexRequestBody(request, nil)
 	assert.Equal(t, "", body["instructions"])
 	input, ok := body["input"].([]interface{})
 	require.True(t, ok)
@@ -351,8 +371,38 @@ func TestClampReasoningEffortForModel(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			actual := clampReasoningEffortForModel(normalizeReasoningEffort(tc.inputEffort), tc.model)
+			actual := clampReasoningEffortForModel(normalizeReasoningEffort(tc.inputEffort), tc.model, nil)
 			assert.Equal(t, tc.expected, actual)
+		})
+	}
+}
+
+func TestClampReasoningEffortForCatalogModel(t *testing.T) {
+	levels := []struct {
+		Effort string `json:"effort"`
+	}{{"low"}, {"medium"}, {"high"}, {"ultra"}}
+	catalog := newModelCatalog([]upstreamModel{
+		{Slug: "gpt-7-nova", DefaultReasoningLevel: "high", SupportedReasoningLevel: levels},
+		{Slug: "gpt-7-ultra", DefaultReasoningLevel: "ultra", SupportedReasoningLevel: levels},
+		{Slug: modelGPT55, DefaultReasoningLevel: "low", SupportedReasoningLevel: levels},
+	})
+	tests := []struct {
+		name        string
+		model       string
+		inputEffort string
+		expected    string
+	}{
+		{"upstream default when empty", "gpt-7-nova", "", "high"},
+		{"listed effort kept", "gpt-7-nova", "low", "low"},
+		{"unlisted effort -> upstream default", "gpt-7-nova", "max", "high"},
+		{"wire-unsupported upstream default is dropped", "gpt-7-ultra", "", ""},
+		{"built-in table wins over upstream", modelGPT55, "none", "none"},
+		{"built-in default wins over upstream", modelGPT55, "", "medium"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.expected, clampReasoningEffortForModel(tc.inputEffort, tc.model, catalog))
 		})
 	}
 }
@@ -362,7 +412,7 @@ func TestBuildCodexRequestBodyForwardsServiceTier(t *testing.T) {
 		"model":        "gpt-5",
 		"service_tier": "priority",
 		"messages":     []interface{}{map[string]interface{}{"role": "user", "content": "hi"}},
-	})
+	}, nil)
 
 	if body["service_tier"] != "priority" {
 		t.Fatalf("expected service_tier priority, got %v", body["service_tier"])
@@ -374,7 +424,7 @@ func TestBuildCodexRequestBodyOmitsEmptyServiceTier(t *testing.T) {
 		"model":        "gpt-5",
 		"service_tier": "   ",
 		"messages":     []interface{}{map[string]interface{}{"role": "user", "content": "hi"}},
-	})
+	}, nil)
 
 	if _, ok := body["service_tier"]; ok {
 		t.Fatalf("expected service_tier to be omitted, got %v", body["service_tier"])

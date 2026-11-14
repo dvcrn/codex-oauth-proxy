@@ -18,6 +18,13 @@ const upstreamModelsURL = "https://chatgpt.com/backend-api/codex/models"
 // upstreamModelsTTL is how long a successful listing is reused.
 const upstreamModelsTTL = 5 * time.Minute
 
+// modelLookupTimeout bounds the catalog lookup a proxied request may wait on.
+const modelLookupTimeout = 5 * time.Second
+
+// modelLookupBackoff is how long request-path lookups are skipped after one
+// fails, so an unavailable models endpoint does not slow every request.
+const modelLookupBackoff = 30 * time.Second
+
 // upstreamModel is the subset of the backend's model description this proxy
 // uses; the full payload is mostly CLI-specific execution settings.
 type upstreamModel struct {
@@ -86,13 +93,17 @@ func (e *upstreamAuthError) Unwrap() error {
 // A failure is returned rather than falling back to the built-in model table,
 // which drifts out of date as models are retired and would advertise IDs that
 // fail at call time.
+//
+// The fetch runs outside modelsCacheMu so a slow upstream does not block
+// callers that could be served from the cache.
 func (s *Server) fetchUpstreamModels(ctx context.Context) ([]upstreamModel, error) {
 	s.modelsCacheMu.Lock()
-	defer s.modelsCacheMu.Unlock()
-
 	if s.modelsCache != nil && time.Now().Before(s.modelsCacheExpiry) {
-		return s.modelsCache, nil
+		cached := s.modelsCache
+		s.modelsCacheMu.Unlock()
+		return cached, nil
 	}
+	s.modelsCacheMu.Unlock()
 
 	parsed, err := s.fetchUpstreamModelsWithRetry(ctx)
 	if err != nil {
@@ -111,8 +122,10 @@ func (s *Server) fetchUpstreamModels(ctx context.Context) ([]upstreamModel, erro
 		return nil, fmt.Errorf("upstream returned no usable models for client_version %s", codexClientVersion)
 	}
 
+	s.modelsCacheMu.Lock()
 	s.modelsCache = visible
 	s.modelsCacheExpiry = time.Now().Add(upstreamModelsTTL)
+	s.modelsCacheMu.Unlock()
 
 	s.logger.Info().
 		Int("model_count", len(visible)).
@@ -204,4 +217,33 @@ func (s *Server) fetchUpstreamModelsOnce(ctx context.Context) (*upstreamModelsRe
 	}
 
 	return &parsed, resp.StatusCode, "", nil
+}
+
+// modelCatalogFor returns the live model catalog when requestedModel is not in
+// the built-in table, so normalization keeps any ID upstream serves. Built-in
+// IDs skip the lookup. A failed lookup returns nil, and normalization falls
+// back to the built-in rewrites until modelLookupBackoff passes.
+func (s *Server) modelCatalogFor(ctx context.Context, requestedModel string) modelCatalog {
+	if isBuiltInModel(canonicalModelID(requestedModel)) {
+		return nil
+	}
+
+	s.modelsCacheMu.Lock()
+	skip := time.Now().Before(s.modelsLookupRetryAt)
+	s.modelsCacheMu.Unlock()
+	if skip {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, modelLookupTimeout)
+	defer cancel()
+	models, err := s.fetchUpstreamModels(ctx)
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to list upstream models for request normalization")
+		s.modelsCacheMu.Lock()
+		s.modelsLookupRetryAt = time.Now().Add(modelLookupBackoff)
+		s.modelsCacheMu.Unlock()
+		return nil
+	}
+	return newModelCatalog(models)
 }

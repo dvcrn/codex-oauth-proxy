@@ -114,9 +114,79 @@ func TestWriteResponseResponsesStreamWithoutUpstreamContentType(t *testing.T) {
 	}
 }
 
+// responsesTestClient fakes the Responses endpoint with f. Model listing
+// requests get responsesTestModelsFixture instead, so handlers can resolve
+// models the built-in table does not know.
 type responsesTestClient func(*http.Request) (*http.Response, error)
 
-func (f responsesTestClient) Do(r *http.Request) (*http.Response, error) { return f(r) }
+func (f responsesTestClient) Do(r *http.Request) (*http.Response, error) {
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.String(), upstreamModelsURL) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(responsesTestModelsFixture)),
+		}, nil
+	}
+	return f(r)
+}
+
+// responsesTestModelsFixture lists a model missing from the built-in table.
+const responsesTestModelsFixture = `{"models":[
+  {"slug":"gpt-7-nova","display_name":"GPT-7 Nova","visibility":"list","default_reasoning_level":"high",
+   "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]}
+]}`
+
+func TestHandlersKeepModelsListedUpstream(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		path    string
+		body    string
+		handler func(*Server, http.ResponseWriter, *http.Request)
+	}{
+		{
+			name:    "chat completions",
+			path:    "/v1/chat/completions",
+			body:    `{"model":"gpt-7-nova-max","messages":[{"role":"user","content":"Reply OK."}],"stream":true}`,
+			handler: (*Server).chatCompletionsHandler,
+		},
+		{
+			name:    "responses",
+			path:    "/v1/responses",
+			body:    `{"model":"gpt-7-nova-max","input":"Reply OK.","stream":true}`,
+			handler: (*Server).responsesHandler,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var outbound map[string]interface{}
+			s := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}}
+			s.httpClient = responsesTestClient(func(r *http.Request) (*http.Response, error) {
+				if err := json.NewDecoder(r.Body).Decode(&outbound); err != nil {
+					t.Fatal(err)
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+					Body:       io.NopCloser(strings.NewReader("event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n")),
+				}, nil
+			})
+
+			w := httptest.NewRecorder()
+			tc.handler(s, w, httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body)))
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+			if outbound["model"] != "gpt-7-nova" {
+				t.Fatalf("outbound model = %v, want gpt-7-nova", outbound["model"])
+			}
+			// "max" is not among the listed levels, so the upstream default applies.
+			reasoning, ok := outbound["reasoning"].(map[string]interface{})
+			if !ok || reasoning["effort"] != "high" {
+				t.Fatalf("outbound reasoning = %v, want effort high", outbound["reasoning"])
+			}
+		})
+	}
+}
 
 func TestResponsesHandlerClientStreamModes(t *testing.T) {
 	const upstreamSSE = "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}}\n\n" +

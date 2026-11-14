@@ -51,6 +51,8 @@ type Server struct {
 	modelsCacheMu     sync.Mutex
 	modelsCache       []upstreamModel
 	modelsCacheExpiry time.Time
+	// modelsLookupRetryAt delays request-path catalog lookups after a failure.
+	modelsLookupRetryAt time.Time
 }
 
 type Option func(*Server)
@@ -223,7 +225,8 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Extract request parameters for logging
 	requestedModel := resolveRequestModel(requestData)
-	normalizedModel := normalizeModel(requestedModel)
+	catalog := s.modelCatalogFor(r.Context(), requestedModel)
+	normalizedModel := normalizeModel(requestedModel, catalog)
 	reasoningEffort := resolveReasoningEffort(requestData)
 	normalizedReasoningEffort := normalizeReasoningEffort(reasoningEffort)
 
@@ -235,7 +238,7 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 	logToolCallInteractions(s.logger, requestData)
 
 	// Build target body for ChatGPT Codex Responses
-	target := buildCodexRequestBody(requestData)
+	target := buildCodexRequestBody(requestData, catalog)
 
 	// Debug: log inbound and outbound (sanitized previews)
 	inboundPreview := string(requestBodyBytes)
@@ -383,7 +386,8 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 	clientStream, _ := requestData["stream"].(bool)
 
 	// Transform request body
-	normalizedModel, normalizedEffort := transformResponsesRequestBody(requestData, requestedModel, requestedEffort)
+	catalog := s.modelCatalogFor(r.Context(), requestedModel)
+	normalizedModel, normalizedEffort := transformResponsesRequestBody(requestData, requestedModel, requestedEffort, catalog)
 	cacheKey, _ := requestData["prompt_cache_key"].(string)
 
 	modifiedBodyBytes, err := json.Marshal(requestData)

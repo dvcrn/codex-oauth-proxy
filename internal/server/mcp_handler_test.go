@@ -409,9 +409,31 @@ func TestMCPAllowsNonLoopbackHost(t *testing.T) {
 }
 
 func TestBuildAskCodexRequestDataServiceTier(t *testing.T) {
-	withTier := buildCodexRequestBody(buildAskCodexRequestData("gpt-5", "hi", "priority"))
+	withTier := buildCodexRequestBody(buildAskCodexRequestData("gpt-5", "hi", "priority"), nil)
 	assert.Equal(t, "priority", withTier["service_tier"])
 
-	withoutTier := buildCodexRequestBody(buildAskCodexRequestData("gpt-5", "hi", ""))
+	withoutTier := buildCodexRequestBody(buildAskCodexRequestData("gpt-5", "hi", ""), nil)
 	assert.NotContains(t, withoutTier, "service_tier")
+}
+
+func TestModelCatalogForLookupPolicy(t *testing.T) {
+	t.Run("built-in model skips the lookup", func(t *testing.T) {
+		stub := &stubModelsHTTPClient{body: upstreamModelsFixture}
+		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
+
+		assert.Nil(t, srv.modelCatalogFor(t.Context(), "GPT-5.5-high"))
+		assert.Equal(t, 0, stub.calls)
+	})
+
+	t.Run("failed lookup falls back and backs off", func(t *testing.T) {
+		stub := &stubModelsHTTPClient{statusCode: http.StatusBadGateway}
+		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
+
+		catalog := srv.modelCatalogFor(t.Context(), "gpt-7-nova")
+		assert.Nil(t, catalog)
+		assert.Equal(t, modelDefault, normalizeModel("gpt-7-nova", catalog))
+
+		assert.Nil(t, srv.modelCatalogFor(t.Context(), "gpt-7-nova"))
+		assert.Equal(t, 1, stub.calls, "a second lookup inside the backoff must not refetch")
+	})
 }
