@@ -375,16 +375,15 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 
 	requestedModel := resolveRequestModel(requestData)
 	requestedEffort := resolveReasoningEffort(requestData)
-	inputCount := 0
-	if input, ok := requestData["input"].([]interface{}); ok {
-		inputCount = len(input)
-	}
-
 	clientStream, _ := requestData["stream"].(bool)
 
 	// Transform request body
 	normalizedModel, normalizedEffort := transformResponsesRequestBody(requestData, requestedModel, requestedEffort)
 	cacheKey, _ := requestData["prompt_cache_key"].(string)
+	inputCount := 0
+	if input, ok := requestData["input"].([]interface{}); ok {
+		inputCount = len(input)
+	}
 
 	modifiedBodyBytes, err := json.Marshal(requestData)
 	if err != nil {

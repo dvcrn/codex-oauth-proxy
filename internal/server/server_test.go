@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -115,6 +116,45 @@ func TestResponsesHandlerClientStreamModes(t *testing.T) {
 				t.Fatalf("unexpected buffered response: %s", w.Body.String())
 			}
 		})
+	}
+}
+
+func TestResponsesHandlerCountsNormalizedInput(t *testing.T) {
+	var logs bytes.Buffer
+	s := &Server{logger: zerolog.New(&logs).Level(zerolog.InfoLevel), credsFetcher: stubCredentialsFetcher{}}
+	s.httpClient = responsesTestClient(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader("event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n")),
+		}, nil
+	})
+	w := httptest.NewRecorder()
+	s.responsesHandler(w, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"gpt-5.6-luna","input":"Compare Microsoft and Cursor"}`)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+
+	decoder := json.NewDecoder(&logs)
+	counted := 0
+	for {
+		var event struct {
+			InputCount *int `json:"input_count"`
+		}
+		if err := decoder.Decode(&event); err == io.EOF {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if event.InputCount != nil {
+			counted++
+			if *event.InputCount != 1 {
+				t.Errorf("input_count = %d, want 1", *event.InputCount)
+			}
+		}
+	}
+	if counted == 0 {
+		t.Fatal("no input count was logged")
 	}
 }
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -97,6 +98,42 @@ func TestTransformResponsesRequestBody(t *testing.T) {
 	for idx, item := range inputMessages {
 		if _, ok := item.([]interface{}); ok {
 			t.Fatalf("input[%d] should be a message map, found nested array", idx)
+		}
+	}
+}
+
+func TestTransformResponsesStringInput(t *testing.T) {
+	const instructions = "Keep the caller's text"
+	for _, text := range []string{"Compare Microsoft and Cursor", "Describe the weather on Mars", "  Keep surrounding whitespace  "} {
+		for _, explicitKey := range []string{"", "client-provided"} {
+			t.Run(text+"/"+explicitKey, func(t *testing.T) {
+				body := map[string]interface{}{"input": text, "instructions": instructions}
+				if explicitKey != "" {
+					body["prompt_cache_key"] = explicitKey
+				}
+				model, _ := transformResponsesRequestBody(body, modelGPT61Sol, "low")
+				want := []interface{}{map[string]interface{}{
+					"role": "user", "content": []interface{}{
+						map[string]interface{}{"type": "input_text", "text": text},
+					},
+				}}
+				if !reflect.DeepEqual(body["input"], want) {
+					t.Errorf("input = %#v, want %#v", body["input"], want)
+				}
+				if got := extractFirstUserText(body); got != text {
+					t.Errorf("first user text = %q, want %q", got, text)
+				}
+				wantKey := explicitKey
+				if wantKey == "" {
+					wantKey = derivePromptCacheKey(model, instructions, text)
+				}
+				if body["prompt_cache_key"] != wantKey {
+					t.Errorf("prompt_cache_key = %v, want %q", body["prompt_cache_key"], wantKey)
+				}
+				if body["store"] != false || body["stream"] != true {
+					t.Error("Codex requests must disable storage and enable streaming")
+				}
+			})
 		}
 	}
 }

@@ -26,10 +26,12 @@ func transformResponsesRequestBody(body map[string]interface{}, requestedModel s
 		delete(body, "instructions")
 	}
 
-	// Codex expects message items even when Responses input is a string.
+	// Content parts keep string input visible to prompt-cache key derivation.
 	if text, ok := body["input"].(string); ok {
 		body["input"] = []interface{}{map[string]interface{}{
-			"role": "user", "content": text,
+			"role": "user", "content": []interface{}{
+				map[string]interface{}{"type": "input_text", "text": text},
+			},
 		}}
 	}
 

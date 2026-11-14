@@ -15,19 +15,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func TestResponsesStringInputIsPreserved(t *testing.T) {
-	const text = "Compare Microsoft and Cursor"
-	body := map[string]interface{}{"input": text}
-	transformResponsesRequestBody(body, modelGPT61Sol, "low")
-	want := []interface{}{map[string]interface{}{"role": "user", "content": text}}
-	if !reflect.DeepEqual(body["input"], want) {
-		t.Fatalf("input = %#v, want %#v", body["input"], want)
-	}
-	if body["store"] != false || body["stream"] != true {
-		t.Fatal("Codex requests must disable storage and enable streaming")
-	}
-}
-
 func TestChatRequestPreservesNames(t *testing.T) {
 	const text = "Zed Cline Roo GitHub Copilot Copilot Cursor Microsoft"
 	for _, role := range []string{"system", "user", "assistant", "tool"} {
