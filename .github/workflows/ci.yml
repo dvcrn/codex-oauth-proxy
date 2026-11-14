@@ -28,3 +28,6 @@ jobs:
 
       - name: Test
         run: just test
+
+      - name: Test Workers logging
+        run: just test-logger-workers

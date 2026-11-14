@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/dvcrn/codex-oauth-proxy/internal/env"
 	"github.com/rs/zerolog"
 )
 
@@ -28,9 +29,9 @@ func colorize(s interface{}, c int) string {
 
 // New creates a logger based on the ENV environment variable
 func New() zerolog.Logger {
-	env := os.Getenv("ENV")
+	environment := env.GetOrDefault("ENV", "")
 
-	if env == "development" || env == "dev" || env == "" {
+	if environment == "development" || environment == "dev" || environment == "" {
 		return NewDevelopment()
 	}
 	return NewProduction()
@@ -71,7 +72,7 @@ func NewDevelopment() zerolog.Logger {
 	return zerolog.New(output).With().Timestamp().Logger()
 }
 
-// NewProduction creates a production logger with JSON output and UNIX timestamps
+// NewProduction creates a JSON logger for shared or persistent log storage.
 func NewProduction() zerolog.Logger {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	return zerolog.New(privacyWriter{os.Stderr}).Level(zerolog.InfoLevel).With().Timestamp().Logger()
