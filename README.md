@@ -104,7 +104,7 @@ codex-oauth-proxy --creds-store=xdg --creds-path=/path/to/auth.json
 codex-oauth-proxy --creds-store=legacy
 ```
 
-Filesystem credentials are replaced atomically. Their parent directory must be writable so token refreshes can create a private temporary file and rename it into place.
+Filesystem credentials are replaced atomically, following symlinks to their targets. The target's parent directory must be writable. For containers, mount the credential directory rather than an individual `auth.json` file: file bind mounts cannot be atomically replaced, and writes fail rather than falling back to truncation.
 
 ## Endpoints
 
