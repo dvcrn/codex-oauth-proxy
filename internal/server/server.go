@@ -699,7 +699,7 @@ func (s *Server) writeResponse(w http.ResponseWriter, resp *http.Response, statu
 		}
 
 		// Detect streaming responses (handle charset variations)
-		isStreaming := responsesSSE || mediaType == "text/event-stream"
+		isStreaming := responsesSSE || convertSSE || mediaType == "text/event-stream"
 		if isStreaming {
 			w.Header().Del("Content-Length")
 			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -746,7 +746,7 @@ func (s *Server) writeResponse(w http.ResponseWriter, resp *http.Response, statu
 
 		if convertSSE {
 			if err := RewriteSSEStreamWithCallback(resp.Body, out, model, debugFn); err != nil {
-				s.logger.Error().Err(err).Msg(fmt.Sprintf("Error rewriting SSE stream: %v", err))
+				s.logger.Error().Err(err).Msg("Error rewriting SSE stream")
 				return
 			}
 		} else {

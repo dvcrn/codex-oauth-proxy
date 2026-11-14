@@ -74,5 +74,5 @@ func NewDevelopment() zerolog.Logger {
 // NewProduction creates a production logger with JSON output and UNIX timestamps
 func NewProduction() zerolog.Logger {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	return zerolog.New(os.Stderr).With().Timestamp().Logger()
+	return zerolog.New(privacyWriter{os.Stderr}).Level(zerolog.InfoLevel).With().Timestamp().Logger()
 }

@@ -32,8 +32,8 @@ func TestTransformResponsesRequestBody(t *testing.T) {
 	}
 
 	instr, _ := body["instructions"].(string)
-	if instr == "" || containsSubstring(instr, "Please greet Codex.") {
-		t.Fatalf("instructions should be canonical prefix and not include user text, got %q", instr)
+	if instr != "Please greet Zed." {
+		t.Fatalf("instructions changed, got %q", instr)
 	}
 
 	input := body["input"].([]interface{})
@@ -48,14 +48,14 @@ func TestTransformResponsesRequestBody(t *testing.T) {
 			continue
 		}
 		if item, ok := content[0].(map[string]interface{}); ok {
-			if txt, _ := item["text"].(string); txt == "Hello from Codex" {
+			if txt, _ := item["text"].(string); txt == "Hello from Zed" {
 				found = true
 				break
 			}
 		}
 	}
 	if !found {
-		t.Fatalf("expected to find replaced user text 'Hello from Codex' in input messages; got %v", body["input"])
+		t.Fatalf("expected to find unchanged user text 'Hello from Zed' in input messages; got %v", body["input"])
 	}
 
 	reasoning, ok := body["reasoning"].(map[string]interface{})
@@ -99,10 +99,6 @@ func TestTransformResponsesRequestBody(t *testing.T) {
 			t.Fatalf("input[%d] should be a message map, found nested array", idx)
 		}
 	}
-}
-
-func containsSubstring(s, substr string) bool {
-	return strings.Contains(s, substr)
 }
 
 func TestTransformResponsesRequestBodyGPT6Models(t *testing.T) {

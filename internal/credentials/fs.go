@@ -40,7 +40,7 @@ func InitFromOAuth(path string, creds *OAuthCredentials) error {
 		return fmt.Errorf("failed to marshal credentials: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := atomicWriteCredentials(path, data); err != nil {
 		return fmt.Errorf("failed to write credentials file: %w", err)
 	}
 
@@ -125,7 +125,7 @@ func (f *FSCredentialsFetcher) UpdateTokens(accessToken, refreshToken string, ex
 		return fmt.Errorf("failed to marshal updated credentials: %w", err)
 	}
 
-	if err := os.WriteFile(f.Path, updatedData, 0600); err != nil {
+	if err := atomicWriteCredentials(f.Path, updatedData); err != nil {
 		return fmt.Errorf("failed to write updated credentials file: %w", err)
 	}
 

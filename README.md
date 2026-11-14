@@ -104,6 +104,8 @@ codex-oauth-proxy --creds-store=xdg --creds-path=/path/to/auth.json
 codex-oauth-proxy --creds-store=legacy
 ```
 
+Filesystem credentials are replaced atomically. Their parent directory must be writable so token refreshes can create a private temporary file and rename it into place.
+
 ## Endpoints
 
 | Endpoint | Purpose |
@@ -169,10 +171,12 @@ Call `ask_codex_models` first when the model ID is not already known. Reasoning 
 | --- | --- | --- |
 | `ADMIN_API_KEY` | required | Key used to protect generation, admin, and MCP requests |
 | `PORT` | `9879` | Listening port |
-| `ENV` | `development` | Use `production` for JSON logs |
+| `ENV` | `development` | Use `production` for JSON logs at info level and above |
 | `DISABLE_HEALTH_LOGS` | `false` | Disable request logs for `/health` |
 | `--creds-store` | `auto` | Credential source for normal Codex CLI logins: `auto`, `xdg`, or `legacy` |
 | `--creds-path` | platform default | Credential file for `xdg` or `legacy` mode |
+
+Production logs omit request/response contents and credential/error details. Development logs can include sensitive data; use `ENV=production` for shared or persistent log storage.
 
 ## Deploy to Cloudflare Workers
 
