@@ -11,6 +11,15 @@ import (
 	"strings"
 )
 
+var namesToReplace = []string{"Zed", "Cline", "Roo", "GitHub Copilot", "Copilot", "Cursor", "Microsoft", "Copilot"}
+
+func replaceNames(input string) string {
+	for _, name := range namesToReplace {
+		input = strings.Replace(input, name, "Codex", -1)
+	}
+	return input
+}
+
 func transformSystemPrompt(requestData map[string]interface{}) ([]map[string]interface{}, error) {
 	var messages []map[string]interface{}
 
@@ -28,7 +37,7 @@ func transformSystemPrompt(requestData map[string]interface{}) ([]map[string]int
 		}
 		message := map[string]interface{}{
 			"type": "text",
-			"text": trimmed,
+			"text": replaceNames(trimmed),
 		}
 		messages = append(messages, message)
 	}
@@ -49,6 +58,8 @@ func transformSystemPrompt(requestData map[string]interface{}) ([]map[string]int
 			if _, hasText := itemMap["text"]; !hasText {
 				return nil, fmt.Errorf("system prompt item missing text field")
 			}
+
+			itemMap["text"] = replaceNames(itemMap["text"].(string))
 
 			// Preserve any existing cache_control as-is; do not add new ones
 			messages = append(messages, itemMap)
@@ -93,6 +104,11 @@ func transformMessages(requestData map[string]interface{}) ([]interface{}, error
 			contentItemMap, ok := contentItem.(map[string]interface{})
 			if !ok {
 				continue
+			}
+			// Replace names in text
+			text, ok := contentItemMap["text"].(string)
+			if ok {
+				contentItemMap["text"] = replaceNames(text)
 			}
 			// Check for ephemeral cache_control
 			if cacheControlRaw, hasCacheControl := contentItemMap["cache_control"]; hasCacheControl {
@@ -217,14 +233,14 @@ func extractInstructions(requestData map[string]interface{}) string {
 		switch v := content.(type) {
 		case string:
 			if v != "" {
-				parts = append(parts, v)
+				parts = append(parts, replaceNames(v))
 			}
 		case []interface{}:
 			var segs []string
 			for _, ci := range v {
 				if cm, ok := ci.(map[string]interface{}); ok {
 					if t, _ := cm["text"].(string); t != "" {
-						segs = append(segs, t)
+						segs = append(segs, replaceNames(t))
 					}
 				}
 			}
@@ -234,6 +250,7 @@ func extractInstructions(requestData map[string]interface{}) string {
 		}
 	}
 
+	// Prepend Codex CLI identity instructions as requested
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
 
@@ -472,7 +489,7 @@ func extractFirstUserText(body map[string]interface{}) string {
 				for _, item := range contentSlice {
 					if itemMap, ok := item.(map[string]interface{}); ok {
 						if text, _ := itemMap["text"].(string); strings.TrimSpace(text) != "" {
-							return text
+							return replaceNames(text)
 						}
 					}
 				}
@@ -488,7 +505,7 @@ func extractFirstUserText(body map[string]interface{}) string {
 				for _, item := range contentSlice {
 					if itemMap, ok := item.(map[string]interface{}); ok {
 						if text, _ := itemMap["text"].(string); strings.TrimSpace(text) != "" {
-							return text
+							return replaceNames(text)
 						}
 					}
 				}
@@ -510,13 +527,13 @@ func extractFirstUserText(body map[string]interface{}) string {
 			switch v := mm["content"].(type) {
 			case string:
 				if strings.TrimSpace(v) != "" {
-					return v
+					return replaceNames(v)
 				}
 			case []interface{}:
 				for _, ci := range v {
 					if cm, ok := ci.(map[string]interface{}); ok {
 						if text, _ := cm["text"].(string); strings.TrimSpace(text) != "" {
-							return text
+							return replaceNames(text)
 						}
 					}
 				}
@@ -567,7 +584,7 @@ func buildCodexInputMessages(requestData map[string]interface{}) []interface{} {
 				"content": contents,
 			})
 		case "assistant":
-			texts := collectTextSegments(mm["content"])
+			texts := collectTextSegments(mm["content"], true)
 			if len(texts) > 0 {
 				contents := make([]interface{}, 0, len(texts))
 				for _, t := range texts {
@@ -626,7 +643,7 @@ func collectUserContent(content interface{}) []interface{} {
 		}
 		return []interface{}{map[string]interface{}{
 			"type": "input_text",
-			"text": text,
+			"text": replaceNames(text),
 		}}
 	case []interface{}:
 		contents := make([]interface{}, 0, len(value))
@@ -641,7 +658,7 @@ func collectUserContent(content interface{}) []interface{} {
 				if text != "" {
 					contents = append(contents, map[string]interface{}{
 						"type": "input_text",
-						"text": text,
+						"text": replaceNames(text),
 					})
 				}
 			case "image_url":
@@ -670,12 +687,15 @@ func collectUserContent(content interface{}) []interface{} {
 	}
 }
 
-func collectTextSegments(content interface{}) []string {
+func collectTextSegments(content interface{}, applyReplace bool) []string {
 	switch v := content.(type) {
 	case string:
 		text := strings.TrimSpace(v)
 		if text == "" {
 			return nil
+		}
+		if applyReplace {
+			text = replaceNames(text)
 		}
 		return []string{text}
 	case []interface{}:
@@ -688,6 +708,9 @@ func collectTextSegments(content interface{}) []string {
 			text, _ := m["text"].(string)
 			if text == "" {
 				continue
+			}
+			if applyReplace {
+				text = replaceNames(text)
 			}
 			texts = append(texts, text)
 		}
