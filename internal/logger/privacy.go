@@ -15,7 +15,7 @@ func (w privacyWriter) Write(p []byte) (int, error) {
 	}
 	for key := range event {
 		switch key {
-		case "time", "level", "message", "status", "status_code", "duration", "duration_ms", "method",
+		case "time", "level", "message", "status_code", "duration", "method", "normalized_model", "port", "creds_store",
 			"input_count", "minutes_until_expiry", "new_expiry_minutes":
 		default:
 			delete(event, key)

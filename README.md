@@ -176,7 +176,7 @@ Call `ask_codex_models` first when the model ID is not already known. Reasoning 
 | `--creds-store` | `auto` | Credential source for normal Codex CLI logins: `auto`, `xdg`, or `legacy` |
 | `--creds-path` | platform default | Credential file for `xdg` or `legacy` mode |
 
-Production logs omit request/response contents and credential/error details. Development logs can include sensitive data; use `ENV=production` for shared or persistent log storage.
+Production logs retain only explicitly allowlisted operational metadata; all other fields are dropped. Development logs can include sensitive data; use `ENV=production` for shared or persistent log storage.
 
 ## Deploy to Cloudflare Workers
 

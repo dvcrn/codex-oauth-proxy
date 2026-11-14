@@ -28,6 +28,14 @@ func TestProductionLoggerKeepsOnlyOperationalFields(t *testing.T) {
 	logger := New()
 	logger.Info().
 		Int("status_code", 502).
+		Str("normalized_model", "gpt-6.1-sol").
+		Str("port", "9879").
+		Str("creds_store", "xdg").
+		Str("uri", "/v1/responses?token=private-query").
+		Str("path", "/private-directory/auth.json").
+		Str("requested_model", "private-model").
+		Str("status", "private-unused-status").
+		Str("duration_ms", "private-unused-duration").
 		Str("authorization_preview", "private-token").
 		Str("inbound_body_preview", "private-prompt").
 		Str("response_body", "private-output").
@@ -47,8 +55,9 @@ func TestProductionLoggerKeepsOnlyOperationalFields(t *testing.T) {
 	if err := json.Unmarshal(data, &event); err != nil {
 		t.Fatalf("expected one JSON event: %v", err)
 	}
-	if len(event) != 4 || string(event["level"]) != `"info"` || string(event["status_code"]) != "502" ||
-		string(event["message"]) != `"Upstream request completed"` || event["time"] == nil {
+	if len(event) != 7 || string(event["level"]) != `"info"` || string(event["status_code"]) != "502" ||
+		string(event["message"]) != `"Upstream request completed"` || event["time"] == nil ||
+		string(event["normalized_model"]) != `"gpt-6.1-sol"` || string(event["port"]) != `"9879"` || string(event["creds_store"]) != `"xdg"` {
 		t.Fatalf("operational fields changed: %s", data)
 	}
 }
