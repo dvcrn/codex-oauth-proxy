@@ -109,6 +109,9 @@ func (s *Server) fetchUpstreamModels(ctx context.Context) ([]upstreamModel, erro
 	}
 	s.modelsCacheMu.Unlock()
 
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if !shareFetchesAcrossRequests {
 		return s.refreshUpstreamModels(ctx)
 	}
@@ -247,16 +250,22 @@ func (s *Server) fetchUpstreamModelsOnce(ctx context.Context) (*upstreamModelsRe
 
 // modelCatalogFor returns the live model catalog when requestedModel is not
 // exactly a built-in ID, so normalization keeps any ID upstream serves. A failed lookup returns nil, and normalization falls
-// back to the built-in rewrites until modelLookupBackoff passes.
+// back to the built-in rewrites until modelLookupBackoff passes, unless another
+// caller refreshes the cache first.
 func (s *Server) modelCatalogFor(ctx context.Context, requestedModel string) modelCatalog {
 	if isBuiltInModel(strings.ToLower(strings.TrimSpace(requestedModel))) {
 		return nil
 	}
 
 	s.modelsCacheMu.Lock()
-	skip := time.Now().Before(s.modelsLookupRetryAt)
+	now := time.Now()
+	cached, fresh := s.modelsCache, now.Before(s.modelsCacheExpiry)
+	inBackoff := now.Before(s.modelsLookupRetryAt)
 	s.modelsCacheMu.Unlock()
-	if skip {
+	if cached != nil && fresh {
+		return newModelCatalog(cached)
+	}
+	if inBackoff {
 		return nil
 	}
 

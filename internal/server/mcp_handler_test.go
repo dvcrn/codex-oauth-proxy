@@ -2,15 +2,12 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -419,84 +416,24 @@ func TestBuildAskCodexRequestDataServiceTier(t *testing.T) {
 	assert.NotContains(t, withoutTier, "service_tier")
 }
 
-func TestModelCatalogForLookupPolicy(t *testing.T) {
-	t.Run("built-in model skips the lookup", func(t *testing.T) {
-		stub := &stubModelsHTTPClient{body: upstreamModelsFixture}
-		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
-
-		assert.Nil(t, srv.modelCatalogFor(t.Context(), " GPT-5.5 "))
-		assert.Equal(t, 0, stub.calls)
+func TestAskCodexKeepsModelsListedUpstream(t *testing.T) {
+	var outbound map[string]interface{}
+	srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}}
+	srv.httpClient = responsesTestClient(func(r *http.Request) (*http.Response, error) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&outbound))
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(bufferedChatTestStream(bufferedChatCompleted,
+				`{"type":"response.output_text.delta","sequence_number":2,"delta":"OK"}`,
+			))),
+		}, nil
 	})
 
-	t.Run("failed lookup falls back and backs off", func(t *testing.T) {
-		stub := &stubModelsHTTPClient{statusCode: http.StatusBadGateway}
-		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
+	out, err := srv.mcpAskCodex(t.Context(), askCodexInput{Prompt: "Reply OK.", Model: "gpt-7-nova-max"})
+	require.NoError(t, err)
 
-		catalog := srv.modelCatalogFor(t.Context(), "gpt-7-nova")
-		assert.Nil(t, catalog)
-		assert.Equal(t, modelDefault, normalizeModel("gpt-7-nova", catalog))
-
-		assert.Nil(t, srv.modelCatalogFor(t.Context(), "gpt-7-nova"))
-		assert.Equal(t, 1, stub.calls, "a second lookup inside the backoff must not refetch")
-	})
-
-	t.Run("cancelled caller does not start the backoff", func(t *testing.T) {
-		stub := &stubModelsHTTPClient{statusCode: http.StatusBadGateway}
-		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
-		ctx, cancel := context.WithCancel(t.Context())
-		cancel()
-
-		assert.Nil(t, srv.modelCatalogFor(ctx, "gpt-7-nova"))
-		assert.True(t, srv.modelsLookupRetryAt.IsZero())
-	})
-}
-
-// blockingModelsHTTPClient holds every models request until release is closed.
-type blockingModelsHTTPClient struct {
-	release chan struct{}
-	calls   atomic.Int32
-}
-
-func (c *blockingModelsHTTPClient) Do(req *http.Request) (*http.Response, error) {
-	c.calls.Add(1)
-	<-c.release
-	return &http.Response{
-		StatusCode: http.StatusOK,
-		Body:       io.NopCloser(strings.NewReader(upstreamModelsFixture)),
-		Header:     make(http.Header),
-		Request:    req,
-	}, nil
-}
-
-func TestFetchUpstreamModelsSharesOneFetch(t *testing.T) {
-	stub := &blockingModelsHTTPClient{release: make(chan struct{})}
-	srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
-
-	cancelled, cancel := context.WithCancel(t.Context())
-	cancelledErr := make(chan error, 1)
-	go func() {
-		_, err := srv.fetchUpstreamModels(cancelled)
-		cancelledErr <- err
-	}()
-	require.Eventually(t, func() bool { return stub.calls.Load() == 1 }, time.Second, time.Millisecond)
-
-	const waiters = 3
-	results := make(chan []upstreamModel, waiters)
-	for range waiters {
-		go func() {
-			models, err := srv.fetchUpstreamModels(t.Context())
-			assert.NoError(t, err)
-			results <- models
-		}()
-	}
-
-	cancel()
-	assert.ErrorIs(t, <-cancelledErr, context.Canceled)
-	close(stub.release)
-
-	for range waiters {
-		assert.Len(t, <-results, 2)
-	}
-	assert.Equal(t, int32(1), stub.calls.Load())
-	assert.Len(t, srv.modelsCache, 2, "the fetch must outlive the caller that started it")
+	assert.Equal(t, "gpt-7-nova", outbound["model"])
+	assert.Equal(t, "gpt-7-nova", out.Model)
+	assert.Equal(t, "OK", out.Text)
 }
