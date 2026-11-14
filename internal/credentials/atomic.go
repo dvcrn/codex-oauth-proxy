@@ -30,6 +30,16 @@ func atomicWriteCredentials(path string, data []byte) error {
 }
 
 func resolveCredentialsPath(path string) (string, error) {
+	// Resolve directories before cleaning ".." components that may follow symlinks.
+	parent, name := filepath.Split(path)
+	if parent == "" {
+		parent = "."
+	}
+	parent, err := filepath.EvalSymlinks(parent)
+	if err != nil {
+		return "", err
+	}
+	path = filepath.Join(parent, name)
 	resolved, err := filepath.EvalSymlinks(path)
 	if err == nil || !os.IsNotExist(err) {
 		return resolved, err
@@ -44,11 +54,7 @@ func resolveCredentialsPath(path string) (string, error) {
 		return "", err
 	}
 	if !filepath.IsAbs(target) {
-		parent, err := filepath.EvalSymlinks(filepath.Dir(path))
-		if err != nil {
-			return "", err
-		}
-		target = filepath.Join(parent, target)
+		target = parent + string(filepath.Separator) + target
 	}
 	return resolveCredentialsPath(target)
 }

@@ -60,7 +60,7 @@ func TestFilesystemCredentialsWriteAtomically(t *testing.T) {
 }
 
 func TestFilesystemCredentialsPreserveSymlinks(t *testing.T) {
-	for _, linkType := range []string{"absolute", "relative", "relative-parent-link"} {
+	for _, linkType := range []string{"absolute", "relative", "relative-parent-link", "relative-parent-link-dotdot", "relative-target-link-dotdot"} {
 		for _, operation := range []string{"initialize", "refresh", "initialize-missing"} {
 			t.Run(linkType+"/"+operation, func(t *testing.T) {
 				dir := t.TempDir()
@@ -77,7 +77,7 @@ func TestFilesystemCredentialsPreserveSymlinks(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if linkType == "relative-parent-link" {
+				if linkType == "relative-parent-link" || linkType == "relative-parent-link-dotdot" {
 					alias := filepath.Join(dir, "alias")
 					if err := os.Symlink(linkDir, alias); err != nil {
 						t.Fatal(err)
@@ -85,9 +85,23 @@ func TestFilesystemCredentialsPreserveSymlinks(t *testing.T) {
 					linkDir = alias
 				}
 				path := filepath.Join(linkDir, "auth.json")
+				if linkType == "relative-parent-link-dotdot" {
+					// Joining the whole path would erase the symlink-dependent "..".
+					path = linkDir + string(filepath.Separator) + filepath.Join("..", "links", "auth.json")
+				}
 				linkTarget := target
 				if linkType != "absolute" {
 					linkTarget = filepath.Join("..", "target", "auth.json")
+				}
+				if linkType == "relative-target-link-dotdot" {
+					inner := filepath.Join(targetDir, "inner")
+					if err := os.Mkdir(inner, 0700); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(inner, filepath.Join(linkDir, "target-alias")); err != nil {
+						t.Fatal(err)
+					}
+					linkTarget = "target-alias" + string(filepath.Separator) + filepath.Join("..", "auth.json")
 				}
 				if err := os.Symlink(linkTarget, path); err != nil {
 					t.Fatal(err)
