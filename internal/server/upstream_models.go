@@ -16,7 +16,7 @@ import (
 const upstreamModelsURL = "https://chatgpt.com/backend-api/codex/models"
 
 // upstreamModelsTTL is how long a successful listing is reused.
-const upstreamModelsTTL = 5 * time.Minute
+const upstreamModelsTTL = time.Hour
 
 // modelsFetchTimeout bounds a shared listing fetch, which outlives any single
 // caller's context.
@@ -248,21 +248,23 @@ func (s *Server) fetchUpstreamModelsOnce(ctx context.Context) (*upstreamModelsRe
 	return &parsed, resp.StatusCode, "", nil
 }
 
-// modelCatalogFor returns the live model catalog when requestedModel is not
-// exactly a built-in ID, so normalization keeps any ID upstream serves. A failed lookup returns nil, and normalization falls
-// back to the built-in rewrites until modelLookupBackoff passes, unless another
-// caller refreshes the cache first.
-func (s *Server) modelCatalogFor(ctx context.Context, requestedModel string) modelCatalog {
-	if isBuiltInModel(strings.ToLower(strings.TrimSpace(requestedModel))) {
-		return nil
-	}
-
+// modelCatalogFor returns the live model catalog that request normalization
+// matches names against, from the cache or a fresh fetch. An expired cache is
+// served while a background fetch refreshes it, except on Workers, which
+// cannot share that fetch across requests. A failed lookup
+// returns nil, and normalization falls back to the built-in table until
+// modelLookupBackoff passes, unless another caller refreshes the cache first.
+func (s *Server) modelCatalogFor(ctx context.Context) modelCatalog {
 	s.modelsCacheMu.Lock()
 	now := time.Now()
 	cached, fresh := s.modelsCache, now.Before(s.modelsCacheExpiry)
 	inBackoff := now.Before(s.modelsLookupRetryAt)
 	s.modelsCacheMu.Unlock()
 	if cached != nil && fresh {
+		return newModelCatalog(cached)
+	}
+	if cached != nil && shareFetchesAcrossRequests {
+		go s.PrefetchModels(context.WithoutCancel(ctx))
 		return newModelCatalog(cached)
 	}
 	if inBackoff {
@@ -284,4 +286,12 @@ func (s *Server) modelCatalogFor(ctx context.Context, requestedModel string) mod
 		return nil
 	}
 	return newModelCatalog(models)
+}
+
+// PrefetchModels fills the model cache so the first requests don't wait on
+// the upstream listing. A failure is logged and left to the request path.
+func (s *Server) PrefetchModels(ctx context.Context) {
+	if _, err := s.fetchUpstreamModels(ctx); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to prefetch upstream models")
+	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"net/http"
 	"os"
@@ -95,6 +96,7 @@ func main() {
 
 	// Create server using shared setup
 	srv := app.NewServer(credsFetcher, log)
+	go srv.PrefetchModels(context.Background())
 
 	port := os.Getenv("PORT")
 	if port == "" {

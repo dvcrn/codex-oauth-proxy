@@ -15,23 +15,25 @@ import (
 )
 
 func TestModelCatalogForLookupPolicy(t *testing.T) {
-	t.Run("built-in model skips the lookup", func(t *testing.T) {
+	t.Run("prefetched listing serves later lookups", func(t *testing.T) {
 		stub := &stubModelsHTTPClient{body: upstreamModelsFixture}
 		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
 
-		assert.Nil(t, srv.modelCatalogFor(t.Context(), " GPT-5.5 "))
-		assert.Equal(t, 0, stub.calls)
+		srv.PrefetchModels(t.Context())
+
+		assert.True(t, srv.modelCatalogFor(t.Context()).lists(modelGPT55))
+		assert.Equal(t, 1, stub.calls)
 	})
 
 	t.Run("failed lookup falls back and backs off", func(t *testing.T) {
 		stub := &stubModelsHTTPClient{statusCode: http.StatusBadGateway}
 		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
 
-		catalog := srv.modelCatalogFor(t.Context(), "gpt-7-nova")
+		catalog := srv.modelCatalogFor(t.Context())
 		assert.Nil(t, catalog)
 		assert.Equal(t, modelDefault, normalizeModel("gpt-7-nova", catalog))
 
-		assert.Nil(t, srv.modelCatalogFor(t.Context(), "gpt-7-nova"))
+		assert.Nil(t, srv.modelCatalogFor(t.Context()))
 		assert.Equal(t, 1, stub.calls, "a second lookup inside the backoff must not refetch")
 	})
 
@@ -41,7 +43,24 @@ func TestModelCatalogForLookupPolicy(t *testing.T) {
 		srv.modelsCacheExpiry = time.Now().Add(time.Minute)
 		srv.modelsLookupRetryAt = time.Now().Add(time.Minute)
 
-		assert.True(t, srv.modelCatalogFor(t.Context(), "gpt-7-nova").lists("gpt-7-nova"))
+		assert.True(t, srv.modelCatalogFor(t.Context()).lists("gpt-7-nova"))
+	})
+
+	t.Run("expired cache is served while it refreshes", func(t *testing.T) {
+		stub := &blockingModelsHTTPClient{release: make(chan struct{})}
+		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
+		srv.modelsCache = []upstreamModel{{Slug: "gpt-7-nova"}}
+		srv.modelsCacheExpiry = time.Now().Add(-time.Minute)
+
+		assert.True(t, srv.modelCatalogFor(t.Context()).lists("gpt-7-nova"))
+
+		require.Eventually(t, func() bool { return stub.calls.Load() == 1 }, time.Second, time.Millisecond)
+		close(stub.release)
+		require.Eventually(t, func() bool {
+			srv.modelsCacheMu.Lock()
+			defer srv.modelsCacheMu.Unlock()
+			return len(srv.modelsCache) == 2
+		}, time.Second, time.Millisecond)
 	})
 
 	t.Run("cancelled caller does not start the backoff", func(t *testing.T) {
@@ -50,7 +69,7 @@ func TestModelCatalogForLookupPolicy(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
 
-		assert.Nil(t, srv.modelCatalogFor(ctx, "gpt-7-nova"))
+		assert.Nil(t, srv.modelCatalogFor(ctx))
 		assert.True(t, srv.modelsLookupRetryAt.IsZero())
 		assert.Equal(t, 0, stub.calls, "a cancelled caller must not start a fetch")
 	})

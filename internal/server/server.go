@@ -229,7 +229,7 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Extract request parameters for logging
 	requestedModel := resolveRequestModel(requestData)
-	catalog := s.modelCatalogFor(r.Context(), requestedModel)
+	catalog := s.modelCatalogFor(r.Context())
 	normalizedModel := normalizeModel(requestedModel, catalog)
 	reasoningEffort := resolveReasoningEffort(requestData, catalog)
 	normalizedReasoningEffort := normalizeReasoningEffort(reasoningEffort)
@@ -381,7 +381,7 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestedModel := resolveRequestModel(requestData)
-	catalog := s.modelCatalogFor(r.Context(), requestedModel)
+	catalog := s.modelCatalogFor(r.Context())
 	requestedEffort := resolveReasoningEffort(requestData, catalog)
 	inputCount := 0
 	if input, ok := requestData["input"].([]interface{}); ok {

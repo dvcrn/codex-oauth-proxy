@@ -7,9 +7,9 @@ package server
 // it, so the two must stay in sync.
 const codexClientVersion = "0.163.0"
 
-// Models currently served by the ChatGPT Codex backend. The authoritative list
-// is the /backend-api/codex/models endpoint; these constants exist for request
-// normalization and model-specific reasoning behavior.
+// Built-in models the ChatGPT Codex backend serves. Requests naming them are
+// always accepted, and unknown IDs are rewritten to them. The live
+// /backend-api/codex/models listing takes precedence for everything else.
 const (
 	modelGPT53Spark   = "gpt-5.3-codex-spark"
 	modelGPT54Mini    = "gpt-5.4-mini"
@@ -29,9 +29,9 @@ const (
 	modelDefault = modelGPT55
 )
 
-// modelAllowedEfforts defines which reasoning effort levels are valid for each
-// canonical backend model. The upstream models endpoint omits "none" for models
-// that accept it, so that capability is maintained explicitly here.
+// modelAllowedEfforts lists the reasoning efforts of models the upstream
+// listing does not cover. For listed models only its "none" entry counts,
+// since upstream omits "none" for models that accept it.
 var modelAllowedEfforts = map[string][]string{
 	modelGPT53Spark:   {"low", "medium", "high", "xhigh"},
 	modelGPT54Mini:    {"none", "low", "medium", "high", "xhigh"},
@@ -47,8 +47,8 @@ var modelAllowedEfforts = map[string][]string{
 	modelDaybreakBlue: {"none", "low", "medium", "high", "xhigh", "max"},
 }
 
-// modelDefaultEffort defines the default reasoning effort to apply when the
-// user does not explicitly specify an effort for the given model.
+// modelDefaultEffort is the reasoning effort applied when a request names none
+// and the upstream listing gives no default for the model.
 var modelDefaultEffort = map[string]string{
 	modelGPT53Spark:   "high",
 	modelGPT54Mini:    "medium",
@@ -82,22 +82,24 @@ func newModelCatalog(models []upstreamModel) modelCatalog {
 }
 
 // modelEffortPolicy returns the reasoning efforts a backend model accepts and
-// the effort to use when none is requested. The built-in table takes priority
-// because upstream omits "none"; models only upstream lists use its levels,
-// plus "none" so that omission is not read as a restriction.
+// the effort to use when none is requested. Upstream's levels and default take
+// precedence over the built-in table. Upstream omits "none", so it is allowed
+// unless the built-in table knows the model rejects it.
 func modelEffortPolicy(model string, catalog modelCatalog) ([]string, string) {
-	if allowed, ok := modelAllowedEfforts[model]; ok {
-		return allowed, modelDefaultEffort[model]
+	upstream, listed := catalog[model]
+	allowed := upstream.efforts()
+	if !listed || len(allowed) == 0 {
+		return modelAllowedEfforts[model], modelDefaultEffort[model]
 	}
-	upstream, ok := catalog[model]
-	if !ok {
-		return nil, ""
+
+	if _, known := modelAllowedEfforts[model]; !known || modelSupportsReasoningEffort(model, "none") {
+		allowed = append([]string{"none"}, allowed...)
 	}
 	defaultEffort := upstream.DefaultReasoningLevel
-	if unsupportedWireEfforts[defaultEffort] {
-		defaultEffort = ""
+	if defaultEffort == "" || unsupportedWireEfforts[defaultEffort] {
+		defaultEffort = modelDefaultEffort[model]
 	}
-	return append([]string{"none"}, upstream.efforts()...), defaultEffort
+	return allowed, defaultEffort
 }
 
 // modelMetadata mirrors the JSON schema required by the OpenAI-compatible

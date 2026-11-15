@@ -386,6 +386,8 @@ func TestClampReasoningEffortForCatalogModel(t *testing.T) {
 		{Slug: "gpt-7-nova", DefaultReasoningLevel: "high", SupportedReasoningLevel: levels},
 		{Slug: "gpt-7-ultra", DefaultReasoningLevel: "ultra", SupportedReasoningLevel: levels},
 		{Slug: modelGPT55, DefaultReasoningLevel: "low", SupportedReasoningLevel: levels},
+		{Slug: modelGPT6Astra, SupportedReasoningLevel: levels},
+		{Slug: modelGPT6Sol, SupportedReasoningLevel: levels[3:]},
 	})
 	tests := []struct {
 		name        string
@@ -398,8 +400,12 @@ func TestClampReasoningEffortForCatalogModel(t *testing.T) {
 		{"unlisted effort -> upstream default", "gpt-7-nova", "max", "high"},
 		{"none is allowed although upstream omits it", "gpt-7-nova", "none", "none"},
 		{"wire-unsupported upstream default is dropped", "gpt-7-ultra", "", ""},
-		{"built-in table wins over upstream", modelGPT55, "none", "none"},
-		{"built-in default wins over upstream", modelGPT55, "", "medium"},
+		{"upstream default wins over built-in", modelGPT55, "", "low"},
+		{"upstream levels win over built-in", modelGPT55, "xhigh", "low"},
+		{"built-in none support is kept", modelGPT55, "none", "none"},
+		{"built-in none rejection is kept", modelGPT6Astra, "none", "medium"},
+		{"built-in default fills a missing upstream default", modelGPT6Astra, "", "medium"},
+		{"built-in levels apply when upstream lists none usable", modelGPT6Sol, "none", "medium"},
 	}
 
 	for _, tc := range tests {

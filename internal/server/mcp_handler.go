@@ -138,7 +138,7 @@ func (s *Server) mcpAskCodex(ctx context.Context, in askCodexInput) (askCodexOut
 	serviceTier := strings.TrimSpace(in.ServiceTier)
 	requestData := buildAskCodexRequestData(requestedModel, prompt, serviceTier)
 
-	catalog := s.modelCatalogFor(ctx, requestedModel)
+	catalog := s.modelCatalogFor(ctx)
 	normalizedModel := normalizeModel(requestedModel, catalog)
 	body, err := json.Marshal(buildCodexRequestBody(requestData, catalog))
 	if err != nil {

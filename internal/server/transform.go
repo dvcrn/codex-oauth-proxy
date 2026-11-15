@@ -269,7 +269,7 @@ func resolveRequestModel(requestData map[string]interface{}) string {
 }
 
 // normalizeModel maps a requested model ID onto one the backend serves. IDs in
-// the built-in table or the live catalog are kept; anything else is rewritten
+// the live catalog or the built-in table are kept; anything else is rewritten
 // to the closest built-in model or modelDefault.
 func normalizeModel(model string, catalog modelCatalog) string {
 	lower, _ := splitModelEffort(model, catalog)
@@ -279,10 +279,7 @@ func normalizeModel(model string, catalog modelCatalog) string {
 
 	// Exact matches first, so a valid ID is never rewritten by the looser
 	// prefix matching below.
-	if isBuiltInModel(lower) {
-		return lower
-	}
-	if catalog.lists(lower) {
+	if catalog.lists(lower) || isBuiltInModel(lower) {
 		return lower
 	}
 
