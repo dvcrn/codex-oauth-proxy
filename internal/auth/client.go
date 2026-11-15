@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const enableBackgroundRefresh = true
+
 // newHTTPClient returns the HTTP client used for OAuth token refresh.
 func newHTTPClient() httpDoer {
 	return &http.Client{

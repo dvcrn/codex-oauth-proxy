@@ -35,7 +35,7 @@ test:
 
 # Exercise Workers bindings independently of the Go process environment.
 test-logger-workers:
-	GOOS=js GOARCH=wasm NODE_OPTIONS='--require="{{justfile_directory()}}/internal/logger/testdata/worker-env.cjs"' go test -exec "$(go env GOROOT)/lib/wasm/go_js_wasm_exec" -count=1 -v ./internal/logger
+	GOOS=js GOARCH=wasm NODE_OPTIONS='--require="{{justfile_directory()}}/internal/logger/testdata/worker-env.cjs"' go test -exec "$(go env GOROOT)/lib/wasm/go_js_wasm_exec" -count=1 -v ./internal/logger ./cmd/codex-oauth-proxy-worker
 
 # Clean build artifacts
 clean:
@@ -48,6 +48,7 @@ docker-build:
 # Build for Cloudflare Workers
 build-worker:
 	go run github.com/syumai/workers/cmd/workers-assets-gen -mode=go
+	cp ./cmd/codex-oauth-proxy-worker/worker.mjs ./build/worker.mjs
 	GOOS=js GOARCH=wasm go build -o ./build/app.wasm cmd/codex-oauth-proxy-worker/main.go
 
 # Show help

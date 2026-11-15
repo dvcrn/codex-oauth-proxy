@@ -11,9 +11,7 @@ import (
 )
 
 // WorkersHTTPClient implements HTTPClient for Cloudflare Workers
-type WorkersHTTPClient struct {
-	client *fetch.Client
-}
+type WorkersHTTPClient struct{}
 
 // shareFetchesAcrossRequests reports whether one request may wait on an
 // upstream fetch another request started. Workers forbids sharing I/O between
@@ -22,29 +20,28 @@ const shareFetchesAcrossRequests = false
 
 // NewHTTPClient creates a new HTTP client for Workers environment
 func NewHTTPClient() HTTPClient {
+	return &WorkersHTTPClient{}
+}
+
+func egressFetchClient() *fetch.Client {
 	binding := cloudflare.GetBinding("CODEX_EGRESS")
 	namespace := js.Global().Get("Object").New()
 	namespace.Set("fetch", binding.Get("fetch").Call("bind", binding))
-	return &WorkersHTTPClient{
-		client: fetch.NewClient(fetch.WithBinding(namespace)),
-	}
+	return fetch.NewClient(fetch.WithBinding(namespace))
 }
 
 // Do performs an HTTP request using Cloudflare Workers fetch
 func (c *WorkersHTTPClient) Do(req *http.Request) (*http.Response, error) {
-	// Create a new fetch request
 	fetchReq, err := fetch.NewRequest(req.Context(), req.Method, req.URL.String(), req.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	// Copy headers from the original request
 	for key, values := range req.Header {
 		for _, value := range values {
 			fetchReq.Header.Set(key, value)
 		}
 	}
 
-	// Perform the request
-	return c.client.Do(fetchReq, &fetch.RequestInit{Redirect: fetch.RedirectModeManual})
+	return egressFetchClient().Do(fetchReq, &fetch.RequestInit{Redirect: fetch.RedirectModeManual})
 }
