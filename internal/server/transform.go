@@ -268,21 +268,30 @@ func resolveRequestModel(requestData map[string]interface{}) string {
 	return modelDefault
 }
 
-// normalizeModel maps a requested model ID onto one the backend serves. IDs in
-// the live catalog or the built-in table are kept; anything else is rewritten
-// to the closest built-in model or modelDefault.
+// normalizeModel maps a requested model ID onto one the backend serves. When
+// the live catalog is present, only IDs in that catalog are returned; unknown
+// or unentitled IDs fall back to a listed built-in match or the catalog
+// default. When the catalog is empty, built-in normalization applies.
 func normalizeModel(model string, catalog modelCatalog) string {
 	lower, _ := splitModelEffort(model, catalog)
 	if lower == "" {
-		return modelDefault
+		return catalog.defaultModel()
 	}
-
-	// Exact matches first, so a valid ID is never rewritten by the looser
-	// prefix matching below.
-	if catalog.lists(lower) || isBuiltInModel(lower) {
+	if catalog.lists(lower) {
 		return lower
 	}
 
+	builtIn := matchBuiltInModel(lower)
+	if len(catalog) == 0 || catalog.lists(builtIn) {
+		return builtIn
+	}
+	return catalog.defaultModel()
+}
+
+func matchBuiltInModel(lower string) string {
+	if isBuiltInModel(lower) {
+		return lower
+	}
 	if strings.Contains(lower, "gpt-5.6-sol") {
 		return modelGPT5Sol
 	}

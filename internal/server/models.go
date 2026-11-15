@@ -64,21 +64,34 @@ var modelDefaultEffort = map[string]string{
 	modelDaybreakBlue: "low",
 }
 
-// modelCatalog indexes the live upstream model listing by slug. A nil catalog
-// is valid: lookups miss and callers fall back to the built-in model table.
-type modelCatalog map[string]upstreamModel
+// modelCatalog is the live upstream model listing in backend priority order. A
+// nil or empty catalog is valid: lookups miss and callers fall back to the
+// built-in model table.
+type modelCatalog []upstreamModel
+
+func newModelCatalog(models []upstreamModel) modelCatalog {
+	return modelCatalog(models)
+}
+
+func (c modelCatalog) lookup(slug string) (upstreamModel, bool) {
+	for _, model := range c {
+		if model.Slug == slug {
+			return model, true
+		}
+	}
+	return upstreamModel{}, false
+}
 
 func (c modelCatalog) lists(model string) bool {
-	_, ok := c[model]
+	_, ok := c.lookup(model)
 	return ok
 }
 
-func newModelCatalog(models []upstreamModel) modelCatalog {
-	catalog := make(modelCatalog, len(models))
-	for _, model := range models {
-		catalog[model.Slug] = model
+func (c modelCatalog) defaultModel() string {
+	if len(c) == 0 || c.lists(modelDefault) {
+		return modelDefault
 	}
-	return catalog
+	return c[0].Slug
 }
 
 // modelEffortPolicy returns the reasoning efforts a backend model accepts and
@@ -86,7 +99,7 @@ func newModelCatalog(models []upstreamModel) modelCatalog {
 // precedence over the built-in table. Upstream omits "none", so it is allowed
 // unless the built-in table knows the model rejects it.
 func modelEffortPolicy(model string, catalog modelCatalog) ([]string, string) {
-	upstream, listed := catalog[model]
+	upstream, listed := catalog.lookup(model)
 	allowed := upstream.efforts()
 	if !listed || len(allowed) == 0 {
 		return modelAllowedEfforts[model], modelDefaultEffort[model]

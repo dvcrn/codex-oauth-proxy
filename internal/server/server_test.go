@@ -131,12 +131,17 @@ func (f responsesTestClient) Do(r *http.Request) (*http.Response, error) {
 }
 
 // responsesTestModelsFixture lists models missing from the built-in table,
-// one of them with a slug that ends in an effort word.
+// one of them with a slug that ends in an effort word, plus built-in models
+// exercised by handler tests.
 const responsesTestModelsFixture = `{"models":[
   {"slug":"gpt-7-nova","display_name":"GPT-7 Nova","visibility":"list","default_reasoning_level":"high",
    "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]},
   {"slug":"gpt-7-codex-max","display_name":"GPT-7 Codex Max","visibility":"list","default_reasoning_level":"medium",
-   "supported_reasoning_levels":[{"effort":"medium"},{"effort":"max"}]}
+   "supported_reasoning_levels":[{"effort":"medium"},{"effort":"max"}]},
+  {"slug":"gpt-6.1-terra","display_name":"GPT-6.1 Terra","visibility":"list","default_reasoning_level":"low",
+   "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}]},
+  {"slug":"gpt-5.6-luna","display_name":"GPT-5.6 Luna","visibility":"list","default_reasoning_level":"medium",
+   "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}]}
 ]}`
 
 func TestHandlersKeepModelsListedUpstream(t *testing.T) {

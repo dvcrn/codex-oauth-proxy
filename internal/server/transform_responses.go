@@ -52,6 +52,16 @@ func transformResponsesRequestBody(body map[string]interface{}, requestedModel s
 					allInstructions = append(allInstructions, msg)
 				}
 			}
+		} else if inStr, ok := existingInput.(string); ok && inStr != "" {
+			allInstructions = append(allInstructions, map[string]interface{}{
+				"role": "user",
+				"content": []interface{}{
+					map[string]interface{}{
+						"type": "input_text",
+						"text": replaceNames(inStr),
+					},
+				},
+			})
 		}
 	}
 

@@ -195,7 +195,11 @@ func TestNormalizeModel(t *testing.T) {
 }
 
 func TestNormalizeModelKeepsCatalogModels(t *testing.T) {
-	catalog := newModelCatalog([]upstreamModel{{Slug: "gpt-7-nova"}, {Slug: "gpt-7-codex-max"}})
+	catalog := newModelCatalog([]upstreamModel{
+		{Slug: "gpt-7-nova"},
+		{Slug: "gpt-7-codex-max"},
+		{Slug: modelGPT54Mini},
+	})
 	testCases := []struct {
 		name     string
 		input    string
@@ -204,8 +208,10 @@ func TestNormalizeModelKeepsCatalogModels(t *testing.T) {
 		{"listed model", "gpt-7-nova", "gpt-7-nova"},
 		{"listed model with effort suffix", " GPT-7-NOVA-HIGH ", "gpt-7-nova"},
 		{"listed slug ending in an effort word", "gpt-7-codex-max", "gpt-7-codex-max"},
-		{"built-in model", "gpt-6.1-terra-max", modelGPT61Terra},
-		{"unlisted model", "gpt-7-luna", modelDefault},
+		{"listed built-in alias", "gpt-4o-mini", modelGPT54Mini},
+		{"unlisted built-in model falls back to catalog default", "gpt-6.1-terra-max", "gpt-7-nova"},
+		{"unlisted model falls back to catalog default", "gpt-7-luna", "gpt-7-nova"},
+		{"empty model falls back to catalog default", "", "gpt-7-nova"},
 	}
 
 	for _, tc := range testCases {
@@ -213,6 +219,9 @@ func TestNormalizeModelKeepsCatalogModels(t *testing.T) {
 			assert.Equal(t, tc.expected, normalizeModel(tc.input, catalog))
 		})
 	}
+
+	catalogWithDefault := newModelCatalog([]upstreamModel{{Slug: "gpt-7-nova"}, {Slug: modelDefault}})
+	assert.Equal(t, modelDefault, normalizeModel("gpt-7-luna", catalogWithDefault))
 }
 
 func TestNormalizeReasoningEffort(t *testing.T) {

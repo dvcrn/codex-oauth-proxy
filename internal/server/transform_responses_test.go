@@ -291,3 +291,25 @@ func TestTransformResponsesRequestBodyDropsEmptyServiceTier(t *testing.T) {
 		t.Fatalf("expected service_tier to be dropped, got %v", body["service_tier"])
 	}
 }
+
+func TestTransformResponsesRequestBodyWrapsStringInput(t *testing.T) {
+	body := map[string]interface{}{
+		"model": modelGPT55,
+		"input": "Hello from Zed",
+	}
+	transformResponsesRequestBody(body, modelGPT55, "", nil)
+
+	input, ok := body["input"].([]interface{})
+	if !ok || len(input) != 1 {
+		t.Fatalf("expected single input message, got %v", body["input"])
+	}
+	msg, _ := input[0].(map[string]interface{})
+	content, _ := msg["content"].([]interface{})
+	if len(content) != 1 {
+		t.Fatalf("expected single content part, got %v", content)
+	}
+	part, _ := content[0].(map[string]interface{})
+	if msg["role"] != "user" || part["type"] != "input_text" || part["text"] != "Hello from Codex" {
+		t.Fatalf("unexpected wrapped input: %v", msg)
+	}
+}
