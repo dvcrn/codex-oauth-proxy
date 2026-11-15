@@ -231,6 +231,9 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 	requestedModel := resolveRequestModel(requestData)
 	catalog := s.modelCatalogFor(r.Context())
 	normalizedModel := normalizeModel(requestedModel, catalog)
+	if !validateRequestModel(w, requestedModel, normalizedModel, catalog) {
+		return
+	}
 	reasoningEffort := resolveReasoningEffort(requestData, catalog)
 	normalizedReasoningEffort := normalizeReasoningEffort(reasoningEffort)
 
@@ -392,6 +395,9 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Transform request body
 	normalizedModel, normalizedEffort := transformResponsesRequestBody(requestData, requestedModel, requestedEffort, catalog)
+	if !validateRequestModel(w, requestedModel, normalizedModel, catalog) {
+		return
+	}
 	cacheKey, _ := requestData["prompt_cache_key"].(string)
 
 	modifiedBodyBytes, err := json.Marshal(requestData)
@@ -489,6 +495,31 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(result); err != nil {
 		s.logger.Error().Err(err).Msg("Error writing buffered Responses response")
 	}
+}
+
+func writeModelError(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"error": map[string]interface{}{
+			"message": message,
+			"type":    "invalid_request_error",
+			"param":   "model",
+			"code":    "model_not_found",
+		},
+	})
+}
+
+func validateRequestModel(w http.ResponseWriter, requestedModel, normalizedModel string, catalog modelCatalog) bool {
+	if normalizedModel == "" {
+		writeModelError(w, "model is required")
+		return false
+	}
+	if len(catalog) > 0 && !catalog.lists(normalizedModel) {
+		writeModelError(w, fmt.Sprintf("The requested model %q does not exist or you do not have access to it.", requestedModel))
+		return false
+	}
+	return true
 }
 
 func previewResponseBody(resp *http.Response) string {

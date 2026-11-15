@@ -21,17 +21,17 @@ func TestModelCatalogForLookupPolicy(t *testing.T) {
 
 		srv.PrefetchModels(t.Context())
 
-		assert.True(t, srv.modelCatalogFor(t.Context()).lists(modelGPT55))
+		assert.True(t, srv.modelCatalogFor(t.Context()).lists("gpt-5.5"))
 		assert.Equal(t, 1, stub.calls)
 	})
 
-	t.Run("failed lookup falls back and backs off", func(t *testing.T) {
+	t.Run("failed lookup backs off", func(t *testing.T) {
 		stub := &stubModelsHTTPClient{statusCode: http.StatusBadGateway}
 		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
 
 		catalog := srv.modelCatalogFor(t.Context())
 		assert.Nil(t, catalog)
-		assert.Equal(t, modelDefault, normalizeModel("gpt-7-nova", catalog))
+		assert.Equal(t, "gpt-7-nova", normalizeModel("gpt-7-nova-high", catalog))
 
 		assert.Nil(t, srv.modelCatalogFor(t.Context()))
 		assert.Equal(t, 1, stub.calls, "a second lookup inside the backoff must not refetch")

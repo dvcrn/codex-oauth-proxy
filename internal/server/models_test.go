@@ -7,8 +7,8 @@ import (
 func TestModelsFromUpstreamIncludesBaseAndSuffixVariants(t *testing.T) {
 	upstream := []upstreamModel{
 		{
-			Slug:        "gpt-5.5",
-			DisplayName: "GPT-5.5",
+			Slug:        "gpt-6-luna",
+			DisplayName: "GPT-6 Luna",
 			SupportedReasoningLevel: []struct {
 				Effort string `json:"effort"`
 			}{{Effort: "low"}, {Effort: "medium"}, {Effort: "high"}, {Effort: "xhigh"}},
@@ -34,16 +34,12 @@ func TestModelsFromUpstreamIncludesBaseAndSuffixVariants(t *testing.T) {
 	}
 
 	for _, id := range []string{
-		// Base models
-		"gpt-5.5",
+		"gpt-6-luna",
 		"gpt-5.6-sol",
-		// Suffix variants derived from explicit capabilities and upstream levels
-		"gpt-5.5-none",
-		"gpt-5.5-low",
-		"gpt-5.5-medium",
-		"gpt-5.5-high",
-		"gpt-5.5-xhigh",
-		"gpt-5.6-sol-none",
+		"gpt-6-luna-low",
+		"gpt-6-luna-medium",
+		"gpt-6-luna-high",
+		"gpt-6-luna-xhigh",
 		"gpt-5.6-sol-low",
 		"gpt-5.6-sol-max",
 	} {
@@ -51,60 +47,14 @@ func TestModelsFromUpstreamIncludesBaseAndSuffixVariants(t *testing.T) {
 			t.Fatalf("expected model %q to be present in the listing", id)
 		}
 	}
-}
 
-func TestModelsFromUpstreamIncludesGPT6Variants(t *testing.T) {
-	upstream := []upstreamModel{
-		{Slug: modelGPT6Sol, DisplayName: "GPT-6 Sol"},
-		{Slug: modelGPT6Luna, DisplayName: "GPT-6 Luna"},
-		{Slug: modelGPT61Sol, DisplayName: "GPT-6.1 Sol"},
-		{Slug: modelGPT61Terra, DisplayName: "GPT-6.1 Terra"},
-	}
-	for i := range upstream {
-		upstream[i].SupportedReasoningLevel = []struct {
-			Effort string `json:"effort"`
-		}{{Effort: "low"}, {Effort: "medium"}, {Effort: "high"}, {Effort: "xhigh"}, {Effort: "max"}}
-	}
-	upstream[0].SupportedReasoningLevel = append(upstream[0].SupportedReasoningLevel, struct {
-		Effort string `json:"effort"`
-	}{Effort: "ultra"})
-
-	seen := make(map[string]bool)
-	for _, model := range modelsFromUpstream(upstream) {
-		seen[model.ID] = true
-	}
-	for _, base := range []string{modelGPT6Sol, modelGPT6Luna, modelGPT61Sol, modelGPT61Terra} {
-		for _, suffix := range []string{"", "-low", "-medium", "-high", "-xhigh", "-max"} {
-			if !seen[base+suffix] {
-				t.Errorf("expected %q to be advertised", base+suffix)
-			}
-			if got := normalizeModel(base+suffix, nil); got != base {
-				t.Errorf("advertised model %q normalized to %q, want %q", base+suffix, got, base)
-			}
-		}
-		for _, suffix := range []string{"-none", "-ultra"} {
-			if seen[base+suffix] {
-				t.Errorf("unexpected %q in model listing", base+suffix)
-			}
+	for _, id := range []string{"gpt-6-luna-none", "gpt-5.6-sol-none"} {
+		if seen[id] {
+			t.Fatalf("unexpected unlisted variant %q in model listing", id)
 		}
 	}
 }
 
-func TestModelsFromUpstreamDoesNotAdvertiseUnsupportedNoneVariant(t *testing.T) {
-	models := modelsFromUpstream([]upstreamModel{
-		{Slug: modelGPT6Astra, DisplayName: "GPT-6-Astra"},
-		{Slug: "gpt-brand-new", DisplayName: "Brand New"},
-	})
-
-	for _, model := range models {
-		if model.ID == modelGPT6Astra+"-none" || model.ID == "gpt-brand-new-none" {
-			t.Fatalf("unsupported none variant %q was advertised", model.ID)
-		}
-	}
-}
-
-// A model the built-in metadata table has never seen must still be listed, so
-// newly launched models are not silently dropped from /v1/models.
 func TestModelsFromUpstreamHandlesUnknownSlugs(t *testing.T) {
 	models := modelsFromUpstream([]upstreamModel{{
 		Slug:        "gpt-brand-new",

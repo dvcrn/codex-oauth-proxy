@@ -139,52 +139,16 @@ func TestNormalizeModel(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"retired gpt-5.4", "gpt-5.4", modelDefault},
-		{"retired gpt-5.4 with effort suffix", "gpt-5.4-high", modelDefault},
-		{"gpt-5.4-mini base", "gpt-5.4-mini", "gpt-5.4-mini"},
-		{"gpt-5.4-mini with effort suffix", "gpt-5.4-mini-xhigh", "gpt-5.4-mini"},
-		{"gpt-5.4-mini with none suffix", "gpt-5.4-mini-none", "gpt-5.4-mini"},
-		{"gpt-5.5 base", "gpt-5.5", "gpt-5.5"},
-		{"gpt-5.5 with suffix", "gpt-5.5-xhigh", "gpt-5.5"},
-		{"gpt-5.6-sol base", "gpt-5.6-sol", "gpt-5.6-sol"},
-		{"gpt-5.6-sol with effort suffix", "gpt-5.6-sol-high", "gpt-5.6-sol"},
-		{"gpt-5.6-sol with max suffix", "gpt-5.6-sol-max", "gpt-5.6-sol"},
-		{"gpt-5.6-sol with none suffix", "gpt-5.6-sol-none", "gpt-5.6-sol"},
-		{"gpt-5.6-terra base", "gpt-5.6-terra", "gpt-5.6-terra"},
-		{"gpt-6-astra base", "gpt-6-astra", "gpt-6-astra"},
-		{"gpt-6-astra with max suffix", "gpt-6-astra-max", "gpt-6-astra"},
-		{"gpt-6-sol base", "gpt-6-sol", modelGPT6Sol},
-		{"gpt-6-sol with max suffix", "gpt-6-sol-max", modelGPT6Sol},
-		{"gpt-6.1-sol base", "gpt-6.1-sol", modelGPT61Sol},
-		{"gpt-6.1-sol with max suffix", "gpt-6.1-sol-max", modelGPT61Sol},
-		{"gpt-6.1-sol with high suffix", "gpt-6.1-sol-high", modelGPT61Sol},
-		{"gpt-6.1-sol uppercase and whitespace", " GPT-6.1-SOL-XHIGH ", modelGPT61Sol},
-		{"gpt-6.1-terra base", "gpt-6.1-terra", modelGPT61Terra},
-		{"gpt-6.1-terra with max suffix", "gpt-6.1-terra-max", modelGPT61Terra},
-		{"gpt-6.1-terra with high suffix", "gpt-6.1-terra-high", modelGPT61Terra},
-		{"gpt-6.1-terra uppercase and whitespace", " GPT-6.1-TERRA-XHIGH ", modelGPT61Terra},
-		{"gpt-6-luna base", "gpt-6-luna", modelGPT6Luna},
-		{"gpt-6-luna with high suffix", "gpt-6-luna-high", modelGPT6Luna},
-		{"gpt-5.3-codex-spark base", "gpt-5.3-codex-spark", "gpt-5.3-codex-spark"},
-		{"gpt-5.6-luna base", "gpt-5.6-luna", "gpt-5.6-luna"},
-		{"daybreak blue", "gpt-daybreak-blue-latest", "gpt-daybreak-blue-latest"},
-		{"uppercase is normalized", "GPT-5.5", "gpt-5.5"},
-
-		// Retired model IDs collapse onto the current default.
-		{"retired gpt-5", "gpt-5", modelDefault},
-		{"retired gpt-5-codex", "gpt-5-codex", modelDefault},
-		{"retired gpt-5.1", "gpt-5.1", modelDefault},
-		{"retired gpt-5.1-codex", "gpt-5.1-codex", modelDefault},
-		{"retired gpt-5.1-codex-max", "gpt-5.1-codex-max", modelDefault},
-		{"retired gpt-5.2", "gpt-5.2", modelDefault},
-		{"retired gpt-5.2-codex", "gpt-5.2-codex", modelDefault},
-		{"retired gpt-5.3-codex", "gpt-5.3-codex", modelDefault},
-		{"unknown model", "some-other-model", modelDefault},
-		{"empty", "", modelDefault},
-
-		{"retired gpt-5-codex-mini", "gpt-5-codex-mini", "gpt-5.4-mini"},
-		{"retired gpt-5.1-codex-mini", "gpt-5.1-codex-mini", "gpt-5.4-mini"},
-		{"gpt-4o mini", "gpt-4o-mini", "gpt-5.4-mini"},
+		{"base model", "gpt-6-luna", "gpt-6-luna"},
+		{"effort suffix low", "gpt-6-luna-low", "gpt-6-luna"},
+		{"effort suffix medium", "gpt-6-luna-medium", "gpt-6-luna"},
+		{"effort suffix high", "gpt-6-luna-high", "gpt-6-luna"},
+		{"effort suffix xhigh", "gpt-6-luna-xhigh", "gpt-6-luna"},
+		{"effort suffix max", "gpt-6.1-terra-max", "gpt-6.1-terra"},
+		{"effort suffix none", "gpt-5.6-sol-none", "gpt-5.6-sol"},
+		{"uppercase and whitespace", " GPT-6.1-TERRA-XHIGH ", "gpt-6.1-terra"},
+		{"unknown model is not rewritten", "some-other-model", "some-other-model"},
+		{"empty stays empty", "", ""},
 	}
 
 	for _, tc := range testCases {
@@ -198,7 +162,6 @@ func TestNormalizeModelKeepsCatalogModels(t *testing.T) {
 	catalog := newModelCatalog([]upstreamModel{
 		{Slug: "gpt-7-nova"},
 		{Slug: "gpt-7-codex-max"},
-		{Slug: modelGPT54Mini},
 	})
 	testCases := []struct {
 		name     string
@@ -208,10 +171,8 @@ func TestNormalizeModelKeepsCatalogModels(t *testing.T) {
 		{"listed model", "gpt-7-nova", "gpt-7-nova"},
 		{"listed model with effort suffix", " GPT-7-NOVA-HIGH ", "gpt-7-nova"},
 		{"listed slug ending in an effort word", "gpt-7-codex-max", "gpt-7-codex-max"},
-		{"listed built-in alias", "gpt-4o-mini", modelGPT54Mini},
-		{"unlisted built-in model falls back to catalog default", "gpt-6.1-terra-max", "gpt-7-nova"},
-		{"unlisted model falls back to catalog default", "gpt-7-luna", "gpt-7-nova"},
-		{"empty model falls back to catalog default", "", "gpt-7-nova"},
+		{"unlisted model is not rewritten", "gpt-7-luna-high", "gpt-7-luna"},
+		{"empty stays empty", "", ""},
 	}
 
 	for _, tc := range testCases {
@@ -219,9 +180,6 @@ func TestNormalizeModelKeepsCatalogModels(t *testing.T) {
 			assert.Equal(t, tc.expected, normalizeModel(tc.input, catalog))
 		})
 	}
-
-	catalogWithDefault := newModelCatalog([]upstreamModel{{Slug: "gpt-7-nova"}, {Slug: modelDefault}})
-	assert.Equal(t, modelDefault, normalizeModel("gpt-7-luna", catalogWithDefault))
 }
 
 func TestNormalizeReasoningEffort(t *testing.T) {
@@ -288,7 +246,7 @@ func TestBuildCodexInputMessagesPreservesImageURLs(t *testing.T) {
 
 func TestBuildCodexRequestBodyUsesOnlyCallerInstructions(t *testing.T) {
 	request := map[string]interface{}{
-		"model": modelGPT55,
+		"model": "gpt-6-luna",
 		"messages": []interface{}{
 			map[string]interface{}{"role": "system", "content": "Keep answers brief."},
 			map[string]interface{}{"role": "user", "content": "Hello"},
@@ -306,7 +264,7 @@ func TestBuildCodexRequestBodyUsesOnlyCallerInstructions(t *testing.T) {
 
 func TestBuildCodexRequestBodyOmitsSyntheticDeveloperMessage(t *testing.T) {
 	request := map[string]interface{}{
-		"model": modelGPT55,
+		"model": "gpt-6-luna",
 		"messages": []interface{}{
 			map[string]interface{}{"role": "user", "content": "Hello"},
 		},
@@ -338,55 +296,6 @@ func TestCollectUserContentPreservesHTTPImageURL(t *testing.T) {
 	}}, contents)
 }
 
-func TestClampReasoningEffortForModel(t *testing.T) {
-	tests := []struct {
-		name        string
-		model       string
-		inputEffort string
-		expected    string
-	}{
-		{"gpt-5.4-mini allows none", modelGPT54Mini, "none", "none"},
-		{"gpt-5.4-mini allows xhigh", modelGPT54Mini, "xhigh", "xhigh"},
-		{"gpt-5.4-mini default when empty -> medium", modelGPT54Mini, "", "medium"},
-		{"gpt-5.5 allows none", modelGPT55, "none", "none"},
-		{"gpt-5.5 allows xhigh", modelGPT55, "xhigh", "xhigh"},
-		{"gpt-5.5 default -> medium", modelGPT55, "", "medium"},
-		{"gpt-5.5 disallows max -> model default", modelGPT55, "max", "medium"},
-		{"gpt-5.6-sol allows none", modelGPT5Sol, "none", "none"},
-		{"gpt-5.6-sol allows max", modelGPT5Sol, "max", "max"},
-		{"gpt-5.6-sol rejects wire-unsupported ultra -> default", modelGPT5Sol, "ultra", "low"},
-		{"gpt-5.6-sol default -> low", modelGPT5Sol, "", "low"},
-		{"gpt-5.6-luna allows none", modelGPT5Luna, "none", "none"},
-		{"gpt-5.6-luna allows max", modelGPT5Luna, "max", "max"},
-		{"gpt-5.6-terra rejects wire-unsupported ultra -> default", modelGPT5Terra, "ultra", "medium"},
-		{"gpt-6-astra rejects none -> default", modelGPT6Astra, "none", "medium"},
-		{"gpt-6-sol defaults to medium", modelGPT6Sol, "", "medium"},
-		{"gpt-6-sol allows max", modelGPT6Sol, "max", "max"},
-		{"gpt-6-sol rejects ultra -> default", modelGPT6Sol, "ultra", "medium"},
-		{"gpt-6.1-sol defaults to low", modelGPT61Sol, "", "low"},
-		{"gpt-6.1-sol allows max", modelGPT61Sol, "max", "max"},
-		{"gpt-6.1-sol allows xhigh", modelGPT61Sol, "xhigh", "xhigh"},
-		{"gpt-6.1-sol rejects none -> default", modelGPT61Sol, "none", "low"},
-		{"gpt-6.1-sol rejects ultra -> default", modelGPT61Sol, "ultra", "low"},
-		{"gpt-6.1-terra defaults to low", modelGPT61Terra, "", "low"},
-		{"gpt-6.1-terra allows max", modelGPT61Terra, "max", "max"},
-		{"gpt-6.1-terra allows xhigh", modelGPT61Terra, "xhigh", "xhigh"},
-		{"gpt-6.1-terra rejects none -> default", modelGPT61Terra, "none", "low"},
-		{"gpt-6.1-terra rejects ultra -> default", modelGPT61Terra, "ultra", "low"},
-		{"gpt-6-luna defaults to medium", modelGPT6Luna, "", "medium"},
-		{"gpt-6-luna rejects none -> default", modelGPT6Luna, "none", "medium"},
-		{"gpt-6-luna allows xhigh", modelGPT6Luna, "xhigh", "xhigh"},
-		{"gpt-5.3-codex-spark rejects none -> default", modelGPT53Spark, "none", "high"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			actual := clampReasoningEffortForModel(normalizeReasoningEffort(tc.inputEffort), tc.model, nil)
-			assert.Equal(t, tc.expected, actual)
-		})
-	}
-}
-
 func TestClampReasoningEffortForCatalogModel(t *testing.T) {
 	levels := []struct {
 		Effort string `json:"effort"`
@@ -394,9 +303,6 @@ func TestClampReasoningEffortForCatalogModel(t *testing.T) {
 	catalog := newModelCatalog([]upstreamModel{
 		{Slug: "gpt-7-nova", DefaultReasoningLevel: "high", SupportedReasoningLevel: levels},
 		{Slug: "gpt-7-ultra", DefaultReasoningLevel: "ultra", SupportedReasoningLevel: levels},
-		{Slug: modelGPT55, DefaultReasoningLevel: "low", SupportedReasoningLevel: levels},
-		{Slug: modelGPT6Astra, SupportedReasoningLevel: levels},
-		{Slug: modelGPT6Sol, SupportedReasoningLevel: levels[3:]},
 	})
 	tests := []struct {
 		name        string
@@ -407,14 +313,8 @@ func TestClampReasoningEffortForCatalogModel(t *testing.T) {
 		{"upstream default when empty", "gpt-7-nova", "", "high"},
 		{"listed effort kept", "gpt-7-nova", "low", "low"},
 		{"unlisted effort -> upstream default", "gpt-7-nova", "max", "high"},
-		{"none is allowed although upstream omits it", "gpt-7-nova", "none", "none"},
 		{"wire-unsupported upstream default is dropped", "gpt-7-ultra", "", ""},
-		{"upstream default wins over built-in", modelGPT55, "", "low"},
-		{"upstream levels win over built-in", modelGPT55, "xhigh", "low"},
-		{"built-in none support is kept", modelGPT55, "none", "none"},
-		{"built-in none rejection is kept", modelGPT6Astra, "none", "medium"},
-		{"built-in default fills a missing upstream default", modelGPT6Astra, "", "medium"},
-		{"built-in levels apply when upstream lists none usable", modelGPT6Sol, "none", "medium"},
+		{"unlisted model passes effort through", "gpt-unlisted", "medium", "medium"},
 	}
 
 	for _, tc := range tests {

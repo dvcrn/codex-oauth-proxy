@@ -209,7 +209,7 @@ func TestMCPAskCodexRejectsBlankInput(t *testing.T) {
 	}{
 		{
 			name:        "blank prompt",
-			args:        map[string]interface{}{"model": modelGPT55, "prompt": "   "},
+			args:        map[string]interface{}{"model": "gpt-7-nova", "prompt": "   "},
 			wantMessage: "prompt is required",
 		},
 		{
@@ -436,4 +436,7 @@ func TestAskCodexKeepsModelsListedUpstream(t *testing.T) {
 	assert.Equal(t, "gpt-7-nova", outbound["model"])
 	assert.Equal(t, "gpt-7-nova", out.Model)
 	assert.Equal(t, "OK", out.Text)
+
+	_, err = srv.mcpAskCodex(t.Context(), askCodexInput{Prompt: "Reply OK.", Model: "gpt-5.5"})
+	require.ErrorContains(t, err, `model "gpt-5.5" is not available`)
 }

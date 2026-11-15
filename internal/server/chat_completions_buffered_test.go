@@ -187,7 +187,7 @@ func TestChatCompletionsHandlerNonStreamingToolRoundTrip(t *testing.T) {
 
 			userMessage := map[string]interface{}{"role": "user", "content": "Use sum_two_numbers to add 1 and 2."}
 			request := map[string]interface{}{
-				"model":    "gpt-5",
+				"model":    "gpt-7-nova",
 				"messages": []interface{}{userMessage},
 				"tools": []interface{}{
 					map[string]interface{}{
@@ -289,7 +289,7 @@ func TestBufferChatCompletionFromSSEFraming(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			response, err := bufferChatCompletionFromSSE(strings.NewReader(tc.stream), modelGPT55)
+			response, err := bufferChatCompletionFromSSE(strings.NewReader(tc.stream), "gpt-7-nova")
 			require.NoError(t, err)
 			assert.Equal(t, "Hello", extractCompletionText(response))
 			assert.Equal(t, "stop", response.Choices[0].FinishReason)
@@ -335,7 +335,7 @@ func TestBufferChatCompletionFromSSETerminalOutcomes(t *testing.T) {
 					name = "with completed tool calls"
 				}
 				t.Run(name, func(t *testing.T) {
-					response, err := bufferChatCompletionFromSSE(strings.NewReader(bufferedTerminalTestStream(tc.terminal, withTools)), modelGPT55)
+					response, err := bufferChatCompletionFromSSE(strings.NewReader(bufferedTerminalTestStream(tc.terminal, withTools)), "gpt-7-nova")
 					if tc.errorCode != "" {
 						require.ErrorContains(t, err, tc.errorCode)
 						if tc.errorType != "" {
@@ -379,7 +379,7 @@ func TestChatCompletionsHandlerBufferedOutcomes(t *testing.T) {
 			})
 			for _, streamField := range []string{"", `,"stream":false`} {
 				w := httptest.NewRecorder()
-				s.chatCompletionsHandler(w, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-5.5","messages":[]`+streamField+`}`)))
+				s.chatCompletionsHandler(w, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-7-nova","messages":[]`+streamField+`}`)))
 				require.Equal(t, tc.status, w.Code, w.Body.String())
 				assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
 				if tc.status == http.StatusOK {
@@ -427,7 +427,7 @@ func TestMCPAskCodexBufferedTerminalOutcomes(t *testing.T) {
 			})
 			recorder, response := postMCP(t, s, map[string]interface{}{
 				"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-				"params": map[string]interface{}{"name": "ask_codex", "arguments": map[string]interface{}{"model": modelGPT55, "prompt": "Answer without tools."}},
+				"params": map[string]interface{}{"name": "ask_codex", "arguments": map[string]interface{}{"model": "gpt-7-nova", "prompt": "Answer without tools."}},
 			}, true)
 			require.Equal(t, http.StatusOK, recorder.Code)
 			result, ok := response["result"].(map[string]interface{})

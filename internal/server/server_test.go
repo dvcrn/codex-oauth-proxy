@@ -53,8 +53,8 @@ func TestChatCompletionsHandlerForwardsGPT61TerraModelAndEffort(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
-	if outbound["model"] != modelGPT61Terra {
-		t.Fatalf("outbound model = %v, want %q", outbound["model"], modelGPT61Terra)
+	if outbound["model"] != "gpt-6.1-terra" {
+		t.Fatalf("outbound model = %v, want %q", outbound["model"], "gpt-6.1-terra")
 	}
 	reasoning, ok := outbound["reasoning"].(map[string]interface{})
 	if !ok || reasoning["effort"] != "max" {
@@ -85,8 +85,8 @@ func TestResponsesHandlerForwardsGPT61TerraModelAndEffort(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
-	if outbound["model"] != modelGPT61Terra {
-		t.Fatalf("outbound model = %v, want %q", outbound["model"], modelGPT61Terra)
+	if outbound["model"] != "gpt-6.1-terra" {
+		t.Fatalf("outbound model = %v, want %q", outbound["model"], "gpt-6.1-terra")
 	}
 	reasoning, ok := outbound["reasoning"].(map[string]interface{})
 	if !ok || reasoning["effort"] != "max" {
@@ -178,14 +178,6 @@ func TestHandlersKeepModelsListedUpstream(t *testing.T) {
 			wantModel:  "gpt-7-codex-max",
 			wantEffort: "medium",
 		},
-		{
-			name:       "none passes through for catalog models",
-			path:       "/v1/chat/completions",
-			body:       `{"model":"gpt-7-nova","messages":[{"role":"user","content":"Reply OK."}],"reasoning_effort":"none","stream":true}`,
-			handler:    (*Server).chatCompletionsHandler,
-			wantModel:  "gpt-7-nova",
-			wantEffort: "none",
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var outbound map[string]interface{}
@@ -213,6 +205,58 @@ func TestHandlersKeepModelsListedUpstream(t *testing.T) {
 			reasoning, ok := outbound["reasoning"].(map[string]interface{})
 			if !ok || reasoning["effort"] != tc.wantEffort {
 				t.Fatalf("outbound reasoning = %v, want effort %s", outbound["reasoning"], tc.wantEffort)
+			}
+		})
+	}
+}
+
+func TestHandlersRejectUnlistedAndBlankModels(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		path    string
+		body    string
+		handler func(*Server, http.ResponseWriter, *http.Request)
+	}{
+		{
+			name:    "chat completions unlisted model",
+			path:    "/v1/chat/completions",
+			body:    `{"model":"gpt-5.5","messages":[{"role":"user","content":"Reply OK."}]}`,
+			handler: (*Server).chatCompletionsHandler,
+		},
+		{
+			name:    "chat completions blank model",
+			path:    "/v1/chat/completions",
+			body:    `{"messages":[{"role":"user","content":"Reply OK."}]}`,
+			handler: (*Server).chatCompletionsHandler,
+		},
+		{
+			name:    "responses unlisted model",
+			path:    "/v1/responses",
+			body:    `{"model":"gpt-5.5","input":"Reply OK."}`,
+			handler: (*Server).responsesHandler,
+		},
+		{
+			name:    "responses blank model",
+			path:    "/v1/responses",
+			body:    `{"input":"Reply OK."}`,
+			handler: (*Server).responsesHandler,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}}
+			s.httpClient = responsesTestClient(func(r *http.Request) (*http.Response, error) {
+				t.Fatalf("unexpected upstream request for %s", r.URL)
+				return nil, nil
+			})
+
+			w := httptest.NewRecorder()
+			tc.handler(s, w, httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body)))
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), `"model_not_found"`) {
+				t.Fatalf("expected model_not_found error, got %s", w.Body.String())
 			}
 		})
 	}
@@ -331,7 +375,7 @@ func TestStreamingErrorLogMessageExcludesErrorDetails(t *testing.T) {
 	body := io.NopCloser(iotest.ErrReader(errors.New("private-stream-error")))
 	server.writeResponse(httptest.NewRecorder(), &http.Response{
 		Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body,
-	}, http.StatusOK, modelGPT61Sol, true, false)
+	}, http.StatusOK, "gpt-6.1-sol", true, false)
 
 	decoder := json.NewDecoder(&output)
 	found := false

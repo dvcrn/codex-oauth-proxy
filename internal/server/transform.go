@@ -260,76 +260,21 @@ func extractInstructions(requestData map[string]interface{}) string {
 
 func resolveRequestModel(requestData map[string]interface{}) string {
 	if model, ok := requestData["model"].(string); ok {
-		model = strings.TrimSpace(model)
-		if model != "" {
-			return model
-		}
+		return strings.TrimSpace(model)
 	}
-	return modelDefault
+	return ""
 }
 
-// normalizeModel maps a requested model ID onto one the backend serves. When
-// the live catalog is present, only IDs in that catalog are returned; unknown
-// or unentitled IDs fall back to a listed built-in match or the catalog
-// default. When the catalog is empty, built-in normalization applies.
+// normalizeModel lowercases a requested model ID and strips any reasoning
+// effort suffix unless the full ID is listed in the upstream catalog.
 func normalizeModel(model string, catalog modelCatalog) string {
-	lower, _ := splitModelEffort(model, catalog)
-	if lower == "" {
-		return catalog.defaultModel()
-	}
-	if catalog.lists(lower) {
-		return lower
-	}
-
-	builtIn := matchBuiltInModel(lower)
-	if len(catalog) == 0 || catalog.lists(builtIn) {
-		return builtIn
-	}
-	return catalog.defaultModel()
-}
-
-func matchBuiltInModel(lower string) string {
-	if isBuiltInModel(lower) {
-		return lower
-	}
-	if strings.Contains(lower, "gpt-5.6-sol") {
-		return modelGPT5Sol
-	}
-	if strings.Contains(lower, "gpt-5.6-terra") {
-		return modelGPT5Terra
-	}
-	if strings.Contains(lower, "gpt-5.6-luna") {
-		return modelGPT5Luna
-	}
-	if strings.Contains(lower, "daybreak") {
-		return modelDaybreakBlue
-	}
-	if strings.Contains(lower, "gpt-5.5") {
-		return modelGPT55
-	}
-	if strings.Contains(lower, "gpt-5.4-mini") {
-		return modelGPT54Mini
-	}
-	if strings.Contains(lower, "gpt-6-astra") {
-		return modelGPT6Astra
-	}
-	if strings.Contains(lower, "gpt-5.3-codex-spark") {
-		return modelGPT53Spark
-	}
-
-	// Unrecognized models, including the retired GPT-5.0 to GPT-5.3 family,
-	// map onto the current default so older callers keep working instead of
-	// getting a hard 400 from the backend.
-	if strings.Contains(lower, "mini") {
-		return modelGPT54Mini
-	}
-
-	return modelDefault
+	id, _ := splitModelEffort(model, catalog)
+	return id
 }
 
 // modelEffortSuffixes are the reasoning efforts a model ID may carry as a
-// suffix ("gpt-5.5-high"). Longest-first so "xhigh" is not mistaken for
-// "high". Built-in model names must not end in one of these words.
+// suffix ("gpt-6-luna-high"). Longest-first so "xhigh" is not mistaken for
+// "high".
 var modelEffortSuffixes = []string{"minimal", "medium", "xhigh", "high", "none", "low", "max"}
 
 // splitModelEffort lowercases a requested model ID and splits off its effort
@@ -346,14 +291,6 @@ func splitModelEffort(model string, catalog modelCatalog) (id, effort string) {
 		}
 	}
 	return lower, ""
-}
-
-func isBuiltInModel(model string) bool {
-	switch model {
-	case modelGPT53Spark, modelGPT54Mini, modelGPT55, modelGPT5Sol, modelGPT5Terra, modelGPT5Luna, modelGPT6Astra, modelGPT6Sol, modelGPT61Sol, modelGPT61Terra, modelGPT6Luna, modelDaybreakBlue:
-		return true
-	}
-	return false
 }
 
 func normalizeReasoningEffort(effort string) string {
@@ -429,15 +366,6 @@ func buildReasoningSettings(requestData map[string]interface{}, catalog modelCat
 		settings["summary"] = summary
 	}
 	return settings
-}
-
-func modelSupportsReasoningEffort(backendModel, effort string) bool {
-	for _, allowedEffort := range modelAllowedEfforts[backendModel] {
-		if effort == allowedEffort {
-			return true
-		}
-	}
-	return false
 }
 
 // clampReasoningEffortForModel enforces per-model reasoning effort limits and
@@ -832,12 +760,8 @@ type SSETransformer struct {
 }
 
 func NewSSETransformer(model string) *SSETransformer {
-	model = strings.TrimSpace(model)
-	if model == "" {
-		model = modelDefault
-	}
 	return &SSETransformer{
-		model:             model,
+		model:             strings.TrimSpace(model),
 		toolIndexByItemID: make(map[string]int),
 		toolIDByItemID:    make(map[string]string),
 		toolNameByItemID:  make(map[string]string),

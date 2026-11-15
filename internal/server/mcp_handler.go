@@ -64,8 +64,8 @@ func (s *Server) newMCPServer() *mcpsdk.Server {
 			"conversation history, so put everything the model needs into the prompt. Call ask_codex_models " +
 			"first if you are unsure which model IDs are available.",
 		InputSchema: mcpObjectSchema(map[string]any{
-			"model": mcpStringSchema("Model ID to ask, e.g. gpt-5.5. Append a reasoning effort " +
-				"suffix (e.g. gpt-5.5-high) to override the model's default effort. " +
+			"model": mcpStringSchema("Model ID to ask. Append a reasoning effort " +
+				"suffix (e.g. -high) to override the model's default effort. " +
 				"Use ask_codex_models to list the IDs the ChatGPT Codex CLI backend currently offers, " +
 				"along with the efforts each one accepts."),
 			"prompt": mcpStringSchema("The full question or instruction to send to the model."),
@@ -140,6 +140,9 @@ func (s *Server) mcpAskCodex(ctx context.Context, in askCodexInput) (askCodexOut
 
 	catalog := s.modelCatalogFor(ctx)
 	normalizedModel := normalizeModel(requestedModel, catalog)
+	if len(catalog) > 0 && !catalog.lists(normalizedModel) {
+		return askCodexOutput{}, fmt.Errorf("model %q is not available; call ask_codex_models to list available models", requestedModel)
+	}
 	body, err := json.Marshal(buildCodexRequestBody(requestData, catalog))
 	if err != nil {
 		return askCodexOutput{}, fmt.Errorf("failed to prepare request for model %q: %w", requestedModel, err)
