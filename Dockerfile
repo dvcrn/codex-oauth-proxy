@@ -44,5 +44,4 @@ USER appuser
 # Default server port
 EXPOSE 9879
 
-# Run the binary
-CMD ["./codex-oauth-proxy"]
+ENTRYPOINT ["/app/codex-oauth-proxy"]
