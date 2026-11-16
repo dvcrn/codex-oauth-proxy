@@ -87,6 +87,8 @@ docker run -p 9879:9879 -e ADMIN_API_KEY=your-secret \
   ghcr.io/dvcrn/codex-oauth-proxy:latest
 ```
 
+Append proxy flags after the image name, e.g. `ghcr.io/dvcrn/codex-oauth-proxy:latest --creds-store=xdg`. Compose `command` and Kubernetes `args` should contain only proxy flags, without the executable name. To run another executable, use Docker's `--entrypoint`, Compose `entrypoint`, or Kubernetes `command`.
+
 The image runs as a non-root user and listens on port `9879` by default. Supply `ADMIN_API_KEY` and OAuth credentials as described below. Git tag names are sanitized to valid Docker tags. `:latest` follows the most recent push to `main` or Git tag. See [RELEASE.md](RELEASE.md) for publishing details.
 
 ## Authentication
