@@ -38,6 +38,7 @@ const storedBackoffTTL = time.Minute
 type ModelsCacheStore interface {
 	LoadModelsCache() ([]byte, error)
 	SaveModelsCache(data []byte, ttl time.Duration) error
+	ClearModelsCache() error
 }
 
 type cachedModelsSnapshot struct {
@@ -352,6 +353,13 @@ func (s *Server) invalidateModelsCache() {
 	s.modelsCacheExpiry = time.Time{}
 	s.modelsLookupRetryAt = time.Time{}
 	s.modelsCacheMu.Unlock()
+
+	if s.modelsCacheStore == nil {
+		return
+	}
+	if err := s.modelsCacheStore.ClearModelsCache(); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to clear stored upstream models cache")
+	}
 }
 
 func (s *Server) currentAccountID() string {

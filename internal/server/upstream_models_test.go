@@ -34,6 +34,11 @@ func (m *memoryModelsCacheStore) SaveModelsCache(data []byte, ttl time.Duration)
 	return nil
 }
 
+func (m *memoryModelsCacheStore) ClearModelsCache() error {
+	m.data = nil
+	return nil
+}
+
 func TestModelCatalogForLookupPolicy(t *testing.T) {
 	t.Run("prefetched listing serves later lookups", func(t *testing.T) {
 		stub := &stubModelsHTTPClient{body: upstreamModelsFixture}
@@ -121,6 +126,26 @@ func TestModelCatalogForLookupPolicy(t *testing.T) {
 
 		srv.invalidateModelsCache()
 		assert.True(t, srv.modelsLookupRetryAt.IsZero())
+	})
+
+	t.Run("invalidation clears the stored lookup backoff", func(t *testing.T) {
+		store := &memoryModelsCacheStore{}
+		stub := &stubModelsHTTPClient{statusCode: http.StatusBadGateway}
+		srv := &Server{
+			logger:           zerolog.Nop(),
+			credsFetcher:     stubCredentialsFetcher{},
+			httpClient:       stub,
+			modelsCacheStore: store,
+		}
+		srv.PrefetchModels(t.Context())
+		require.NotEmpty(t, store.data, "a failed fetch must persist its backoff")
+
+		srv.invalidateModelsCache()
+		stub.statusCode = http.StatusOK
+		stub.body = upstreamModelsFixture
+
+		assert.True(t, srv.modelCatalogFor(t.Context()).lists("gpt-5.5"))
+		assert.Equal(t, 2, stub.calls, "credentials changes must refetch instead of reloading the stored backoff")
 	})
 
 	t.Run("external cache store scopes by version and account and persists backoff", func(t *testing.T) {

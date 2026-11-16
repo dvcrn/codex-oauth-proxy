@@ -150,6 +150,13 @@ func (c *CloudflareKVFetcher) SaveModelsCache(data []byte, ttl time.Duration) er
 	return nil
 }
 
+func (c *CloudflareKVFetcher) ClearModelsCache() error {
+	if err := c.kvStore.Delete(modelsCacheKey); err != nil {
+		return fmt.Errorf("failed to clear models cache: %w", err)
+	}
+	return nil
+}
+
 func (c *CloudflareKVFetcher) StoreCredentials(accessToken, refreshToken string, expiresAt int64, userID string) error {
 	return c.SetInitialCredentials(accessToken, refreshToken, expiresAt, userID, nil)
 }
