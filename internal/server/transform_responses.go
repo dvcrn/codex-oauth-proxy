@@ -26,6 +26,15 @@ func transformResponsesRequestBody(body map[string]interface{}, requestedModel s
 		delete(body, "instructions")
 	}
 
+	// Content parts keep string input visible to prompt-cache key derivation.
+	if text, ok := body["input"].(string); ok {
+		body["input"] = []interface{}{map[string]interface{}{
+			"role": "user", "content": []interface{}{
+				map[string]interface{}{"type": "input_text", "text": text},
+			},
+		}}
+	}
+
 	var systemText string
 	var allInstructions []interface{}
 	if existingInput, ok := body["input"]; ok {
@@ -52,16 +61,6 @@ func transformResponsesRequestBody(body map[string]interface{}, requestedModel s
 					allInstructions = append(allInstructions, msg)
 				}
 			}
-		} else if inStr, ok := existingInput.(string); ok && inStr != "" {
-			allInstructions = append(allInstructions, map[string]interface{}{
-				"role": "user",
-				"content": []interface{}{
-					map[string]interface{}{
-						"type": "input_text",
-						"text": replaceNames(inStr),
-					},
-				},
-			})
 		}
 	}
 
@@ -69,13 +68,13 @@ func transformResponsesRequestBody(body map[string]interface{}, requestedModel s
 		body["instructions"] = userInstr
 		developerMsg := map[string]interface{}{
 			"role":    "developer",
-			"content": replaceNames(systemText),
+			"content": systemText,
 		}
 		allInstructions = append([]interface{}{developerMsg}, allInstructions...)
 	} else if userInstr != "" {
 		body["instructions"] = userInstr
 	} else if systemText != "" {
-		body["instructions"] = replaceNames(systemText)
+		body["instructions"] = systemText
 	} else {
 		body["instructions"] = ""
 	}
@@ -148,20 +147,6 @@ func sanitizeResponsesInput(body map[string]interface{}) {
 		}
 		if id, ok := msgMap["id"].(string); ok && len(id) > maxResponsesInputItemIDLength {
 			delete(msgMap, "id")
-		}
-		contents, ok := msgMap["content"].([]interface{})
-		if !ok {
-			filtered = append(filtered, msg)
-			continue
-		}
-		for _, item := range contents {
-			itemMap, ok := item.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			if text, ok := itemMap["text"].(string); ok && text != "" {
-				itemMap["text"] = replaceNames(text)
-			}
 		}
 		filtered = append(filtered, msg)
 	}

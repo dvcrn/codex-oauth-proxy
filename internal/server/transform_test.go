@@ -9,6 +9,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestChatRequestPreservesNames(t *testing.T) {
+	const text = "Zed Cline Roo GitHub Copilot Copilot Cursor Microsoft"
+	for _, role := range []string{"system", "user", "assistant", "tool"} {
+		for _, format := range []string{"string", "parts"} {
+			t.Run(role+"/"+format, func(t *testing.T) {
+				var content interface{} = text
+				if format == "parts" {
+					content = []interface{}{map[string]interface{}{"type": "text", "text": text}}
+				}
+				body := buildCodexRequestBody(map[string]interface{}{
+					"model": "gpt-6.1-sol",
+					"messages": []interface{}{map[string]interface{}{
+						"role": role, "content": content, "tool_call_id": "call_example",
+					}},
+				}, nil)
+				input, _ := body["input"].([]interface{})
+				if len(input) != 1 {
+					t.Fatalf("expected one input item, got %#v", body["input"])
+				}
+				item := input[0].(map[string]interface{})
+				var got interface{}
+				if role == "tool" {
+					got = item["output"]
+				} else {
+					got = item["content"].([]interface{})[0].(map[string]interface{})["text"]
+				}
+				if got != text {
+					t.Fatalf("content = %q, want %q", got, text)
+				}
+				if role == "system" && body["instructions"] != text {
+					t.Fatalf("instructions = %q, want %q", body["instructions"], text)
+				}
+			})
+		}
+	}
+}
+
 func TestTransformSSELine(t *testing.T) {
 	// Test case 1: response.created event
 	t.Run("handles response.created", func(t *testing.T) {

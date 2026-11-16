@@ -410,11 +410,11 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 		writeModelError(w, "model is required")
 		return
 	}
+	cacheKey, _ := requestData["prompt_cache_key"].(string)
 	inputCount := 0
 	if input, ok := requestData["input"].([]interface{}); ok {
 		inputCount = len(input)
 	}
-	cacheKey, _ := requestData["prompt_cache_key"].(string)
 
 	modifiedBodyBytes, err := json.Marshal(requestData)
 	if err != nil {
@@ -742,7 +742,7 @@ func (s *Server) writeResponse(w http.ResponseWriter, resp *http.Response, statu
 		}
 
 		// Detect streaming responses (handle charset variations)
-		isStreaming := responsesSSE || mediaType == "text/event-stream"
+		isStreaming := responsesSSE || convertSSE || mediaType == "text/event-stream"
 		if isStreaming {
 			w.Header().Del("Content-Length")
 			w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")

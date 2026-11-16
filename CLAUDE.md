@@ -67,14 +67,14 @@ The proxy provides two primary modes of operation via distinct endpoints:
 
 ### Key Transformations
 
+Caller instructions, messages, and tool results must retain their product names.
+
 1. **System Prompt Transformation** (`transformSystemPrompt`):
 
-   - Prepends the Codex CLI identity / instructions prompt
-   - Replaces competitor names with "Codex"
+   - Extracts caller-supplied system instructions
 
 2. **Message Processing** (`transformMessages` / `buildCodexInputMessages`):
 
-   - Replaces competitor names in message content
    - Maps OpenAI-style messages and tools into the Codex input format
 
 3. **Request Modifications** (`buildCodexRequestBody`):
