@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 
@@ -18,6 +19,10 @@ func main() {
 	credsPath := flag.String("creds-path", "", "Override path for filesystem credentials (for xdg/legacy modes)")
 	disableRefresh := flag.Bool("disable-migrate-refresh", false, "Skip immediate token refresh after migration")
 	flag.Parse()
+	if flag.NArg() > 0 {
+		fmt.Fprintln(os.Stderr, "unexpected positional arguments; pass only proxy flags without the executable name")
+		os.Exit(2)
+	}
 
 	log := logger.New()
 
