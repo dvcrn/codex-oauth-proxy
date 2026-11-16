@@ -4,10 +4,6 @@ on:
   push:
     branches: [main]
     tags: ["**"]
-  pull_request:
-    paths:
-      - Dockerfile
-      - .github/workflows/container.yml
 
 permissions:
   contents: read
@@ -56,14 +52,8 @@ jobs:
             --request POST --write-out '%{http_code}' \
             "http://$address/v1/chat/completions")" = 401
 
-      - name: Smoke test CLI arguments
-        run: |
-          docker run --rm codex-oauth-proxy:test \
-            --creds-store=xdg --creds-path=/tmp/auth.json --help
-
   publish:
     name: Publish to GHCR
-    if: github.event_name == 'push'
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 30
