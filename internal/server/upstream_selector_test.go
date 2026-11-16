@@ -3,7 +3,7 @@ package server
 import "testing"
 
 func TestUpstreamTransportForModel_DefaultsToHTTP(t *testing.T) {
-	if got := upstreamTransportForModel(modelGPT55); got != "http" {
+	if got := upstreamTransportForModel("gpt-6-luna"); got != "http" {
 		t.Fatalf("expected model to use http transport, got %q", got)
 	}
 }

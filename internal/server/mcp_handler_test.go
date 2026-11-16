@@ -209,7 +209,7 @@ func TestMCPAskCodexRejectsBlankInput(t *testing.T) {
 	}{
 		{
 			name:        "blank prompt",
-			args:        map[string]interface{}{"model": modelGPT55, "prompt": "   "},
+			args:        map[string]interface{}{"model": "gpt-7-nova", "prompt": "   "},
 			wantMessage: "prompt is required",
 		},
 		{
@@ -409,9 +409,39 @@ func TestMCPAllowsNonLoopbackHost(t *testing.T) {
 }
 
 func TestBuildAskCodexRequestDataServiceTier(t *testing.T) {
-	withTier := buildCodexRequestBody(buildAskCodexRequestData("gpt-5", "hi", "priority"))
+	withTier := buildCodexRequestBody(buildAskCodexRequestData("gpt-5", "hi", "priority"), nil)
 	assert.Equal(t, "priority", withTier["service_tier"])
 
-	withoutTier := buildCodexRequestBody(buildAskCodexRequestData("gpt-5", "hi", ""))
+	withoutTier := buildCodexRequestBody(buildAskCodexRequestData("gpt-5", "hi", ""), nil)
 	assert.NotContains(t, withoutTier, "service_tier")
+}
+
+func TestAskCodexKeepsModelsListedUpstream(t *testing.T) {
+	var outbound map[string]interface{}
+	srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}}
+	srv.httpClient = responsesTestClient(func(r *http.Request) (*http.Response, error) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&outbound))
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"text/event-stream"}},
+			Body: io.NopCloser(strings.NewReader(bufferedChatTestStream(bufferedChatCompleted,
+				`{"type":"response.output_text.delta","sequence_number":2,"delta":"OK"}`,
+			))),
+		}, nil
+	})
+
+	out, err := srv.mcpAskCodex(t.Context(), askCodexInput{Prompt: "Reply OK.", Model: "gpt-7-nova-max"})
+	require.NoError(t, err)
+
+	assert.Equal(t, "gpt-7-nova", outbound["model"])
+	assert.Equal(t, "gpt-7-nova", out.Model)
+	assert.Equal(t, "OK", out.Text)
+
+	out, err = srv.mcpAskCodex(t.Context(), askCodexInput{Prompt: "Reply OK.", Model: "gpt-7-unlisted-high"})
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-7-unlisted", outbound["model"])
+	assert.Equal(t, "gpt-7-unlisted", out.Model)
+
+	_, err = srv.mcpAskCodex(t.Context(), askCodexInput{Prompt: "Reply OK.", Model: "-high"})
+	require.ErrorContains(t, err, "model is required")
 }

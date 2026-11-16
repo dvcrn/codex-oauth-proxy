@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/dvcrn/codex-oauth-proxy/internal/credentials"
 	"github.com/dvcrn/codex-oauth-proxy/internal/env"
 	"github.com/rs/zerolog"
@@ -46,11 +48,16 @@ type Server struct {
 	logger            zerolog.Logger
 	disableHealthLogs bool
 	deviceAuth        *DeviceAuth
+	modelsCacheStore  ModelsCacheStore
 
 	// Cached result of the upstream model listing, guarded by modelsCacheMu.
 	modelsCacheMu     sync.Mutex
 	modelsCache       []upstreamModel
 	modelsCacheExpiry time.Time
+	// modelsLookupRetryAt delays request-path catalog lookups after a failure.
+	modelsLookupRetryAt time.Time
+	// modelsFetch shares one in-flight upstream listing between callers.
+	modelsFetch singleflight.Group
 }
 
 type Option func(*Server)
@@ -58,6 +65,12 @@ type Option func(*Server)
 func WithDeviceAuth(store DeviceAuthStore) Option {
 	return func(s *Server) {
 		s.deviceAuth = newDeviceAuth(store, s.httpClient)
+	}
+}
+
+func WithModelsCache(store ModelsCacheStore) Option {
+	return func(s *Server) {
+		s.modelsCacheStore = store
 	}
 }
 
@@ -223,9 +236,18 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Extract request parameters for logging
 	requestedModel := resolveRequestModel(requestData)
-	normalizedModel := normalizeModel(requestedModel)
-	reasoningEffort := resolveReasoningEffort(requestData)
-	normalizedReasoningEffort := normalizeReasoningEffort(reasoningEffort)
+	if requestedModel == "" {
+		writeModelError(w, "model is required")
+		return
+	}
+	catalog := s.modelCatalogFor(r.Context())
+	normalizedModel := normalizeModel(requestedModel, catalog)
+	if normalizedModel == "" {
+		writeModelError(w, "model is required")
+		return
+	}
+	reasoningEffort := resolveReasoningEffort(requestData, catalog)
+	normalizedReasoningEffort := clampReasoningEffortForModel(reasoningEffort, normalizedModel, catalog)
 
 	messageCount := 0
 	if messages, ok := requestData["messages"].([]interface{}); ok {
@@ -235,7 +257,7 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 	logToolCallInteractions(s.logger, requestData)
 
 	// Build target body for ChatGPT Codex Responses
-	target := buildCodexRequestBody(requestData)
+	target := buildCodexRequestBody(requestData, catalog)
 
 	// Debug: log inbound and outbound (sanitized previews)
 	inboundPreview := string(requestBodyBytes)
@@ -374,16 +396,24 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestedModel := resolveRequestModel(requestData)
-	requestedEffort := resolveReasoningEffort(requestData)
+	if requestedModel == "" {
+		writeModelError(w, "model is required")
+		return
+	}
+	catalog := s.modelCatalogFor(r.Context())
+	requestedEffort := resolveReasoningEffort(requestData, catalog)
+	clientStream, _ := requestData["stream"].(bool)
+
+	// Transform request body
+	normalizedModel, normalizedEffort := transformResponsesRequestBody(requestData, requestedModel, requestedEffort, catalog)
+	if normalizedModel == "" {
+		writeModelError(w, "model is required")
+		return
+	}
 	inputCount := 0
 	if input, ok := requestData["input"].([]interface{}); ok {
 		inputCount = len(input)
 	}
-
-	clientStream, _ := requestData["stream"].(bool)
-
-	// Transform request body
-	normalizedModel, normalizedEffort := transformResponsesRequestBody(requestData, requestedModel, requestedEffort)
 	cacheKey, _ := requestData["prompt_cache_key"].(string)
 
 	modifiedBodyBytes, err := json.Marshal(requestData)
@@ -481,6 +511,19 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(result); err != nil {
 		s.logger.Error().Err(err).Msg("Error writing buffered Responses response")
 	}
+}
+
+func writeModelError(w http.ResponseWriter, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusBadRequest)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"error": map[string]interface{}{
+			"message": message,
+			"type":    "invalid_request_error",
+			"param":   "model",
+			"code":    "model_not_found",
+		},
+	})
 }
 
 func previewResponseBody(resp *http.Response) string {
@@ -1009,6 +1052,7 @@ func (s *Server) credentialsHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to update credentials", http.StatusInternalServerError)
 		return
 	}
+	s.invalidateModelsCache()
 
 	s.logger.Info().Msg("OAuth credentials updated successfully")
 

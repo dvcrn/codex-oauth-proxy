@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+// detachBackgroundFetches reports whether upstream model refreshes may outlive
+// the request that triggered them.
+const detachBackgroundFetches = true
+
 // NewHTTPClient creates a new HTTP client for regular environments
 func NewHTTPClient() HTTPClient {
 	tr := &http.Transport{

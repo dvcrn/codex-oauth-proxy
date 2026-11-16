@@ -5,6 +5,7 @@ package credentials
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/syumai/workers/cloudflare/kv"
 )
@@ -21,7 +22,10 @@ type kvCredentials struct {
 }
 
 // CloudflareKVFetcher retrieves credentials from Cloudflare KV
-const deviceAuthSessionKey = "device-auth"
+const (
+	deviceAuthSessionKey = "device-auth"
+	modelsCacheKey       = "upstream-models"
+)
 
 type CloudflareKVFetcher struct {
 	kvStore *kv.Namespace
@@ -120,6 +124,35 @@ func (c *CloudflareKVFetcher) LoadDeviceAuthSession() ([]byte, error) {
 func (c *CloudflareKVFetcher) SaveDeviceAuthSession(session []byte) error {
 	if err := c.kvStore.PutString(deviceAuthSessionKey, string(session), nil); err != nil {
 		return fmt.Errorf("failed to save device auth session: %w", err)
+	}
+	return nil
+}
+
+func (c *CloudflareKVFetcher) LoadModelsCache() ([]byte, error) {
+	cached, err := c.kvStore.GetString(modelsCacheKey, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get models cache: %w", err)
+	}
+	if cached == "" || cached == "<null>" {
+		return nil, nil
+	}
+	return []byte(cached), nil
+}
+
+func (c *CloudflareKVFetcher) SaveModelsCache(data []byte, ttl time.Duration) error {
+	var opts *kv.PutOptions
+	if secs := int(ttl.Seconds()); secs >= 60 {
+		opts = &kv.PutOptions{ExpirationTTL: secs}
+	}
+	if err := c.kvStore.PutString(modelsCacheKey, string(data), opts); err != nil {
+		return fmt.Errorf("failed to save models cache: %w", err)
+	}
+	return nil
+}
+
+func (c *CloudflareKVFetcher) ClearModelsCache() error {
+	if err := c.kvStore.Delete(modelsCacheKey); err != nil {
+		return fmt.Errorf("failed to clear models cache: %w", err)
 	}
 	return nil
 }

@@ -10,6 +10,10 @@ import (
 	"github.com/syumai/workers/cloudflare/fetch"
 )
 
+// detachBackgroundFetches is disabled on Workers because each WASM instance
+// exits as soon as its HTTP response body closes.
+const detachBackgroundFetches = false
+
 // WorkersHTTPClient implements HTTPClient for Cloudflare Workers
 type WorkersHTTPClient struct {
 	client *fetch.Client

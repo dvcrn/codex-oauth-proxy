@@ -4,8 +4,8 @@ import "strings"
 
 const maxResponsesInputItemIDLength = 64
 
-func transformResponsesRequestBody(body map[string]interface{}, requestedModel string, requestedEffort string) (string, string) {
-	normalizedModel := normalizeModel(requestedModel)
+func transformResponsesRequestBody(body map[string]interface{}, requestedModel string, requestedEffort string, catalog modelCatalog) (string, string) {
+	normalizedModel := normalizeModel(requestedModel, catalog)
 	body["model"] = normalizedModel
 
 	// Responses must always disable server-side store per upstream requirements
@@ -52,6 +52,16 @@ func transformResponsesRequestBody(body map[string]interface{}, requestedModel s
 					allInstructions = append(allInstructions, msg)
 				}
 			}
+		} else if inStr, ok := existingInput.(string); ok && inStr != "" {
+			allInstructions = append(allInstructions, map[string]interface{}{
+				"role": "user",
+				"content": []interface{}{
+					map[string]interface{}{
+						"type": "input_text",
+						"text": replaceNames(inStr),
+					},
+				},
+			})
 		}
 	}
 
@@ -93,8 +103,7 @@ func transformResponsesRequestBody(body map[string]interface{}, requestedModel s
 		delete(body, "max_tokens")
 	}
 
-	normalizedEffort := normalizeReasoningEffort(requestedEffort)
-	clampedEffort := clampReasoningEffortForModel(normalizedEffort, normalizedModel)
+	clampedEffort := clampReasoningEffortForModel(requestedEffort, normalizedModel, catalog)
 	summary := resolveReasoningSummary(body)
 	reasoningSettings := map[string]interface{}{}
 	if summary != nil {

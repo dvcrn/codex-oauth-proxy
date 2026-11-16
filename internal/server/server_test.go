@@ -53,8 +53,8 @@ func TestChatCompletionsHandlerForwardsGPT61TerraModelAndEffort(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
-	if outbound["model"] != modelGPT61Terra {
-		t.Fatalf("outbound model = %v, want %q", outbound["model"], modelGPT61Terra)
+	if outbound["model"] != "gpt-6.1-terra" {
+		t.Fatalf("outbound model = %v, want %q", outbound["model"], "gpt-6.1-terra")
 	}
 	reasoning, ok := outbound["reasoning"].(map[string]interface{})
 	if !ok || reasoning["effort"] != "max" {
@@ -85,8 +85,8 @@ func TestResponsesHandlerForwardsGPT61TerraModelAndEffort(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
-	if outbound["model"] != modelGPT61Terra {
-		t.Fatalf("outbound model = %v, want %q", outbound["model"], modelGPT61Terra)
+	if outbound["model"] != "gpt-6.1-terra" {
+		t.Fatalf("outbound model = %v, want %q", outbound["model"], "gpt-6.1-terra")
 	}
 	reasoning, ok := outbound["reasoning"].(map[string]interface{})
 	if !ok || reasoning["effort"] != "max" {
@@ -114,9 +114,165 @@ func TestWriteResponseResponsesStreamWithoutUpstreamContentType(t *testing.T) {
 	}
 }
 
+// responsesTestClient fakes the Responses endpoint with f and serves
+// responsesTestModelsFixture on /codex/models listing requests.
 type responsesTestClient func(*http.Request) (*http.Response, error)
 
-func (f responsesTestClient) Do(r *http.Request) (*http.Response, error) { return f(r) }
+func (f responsesTestClient) Do(r *http.Request) (*http.Response, error) {
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.String(), upstreamModelsURL) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": {"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(responsesTestModelsFixture)),
+		}, nil
+	}
+	return f(r)
+}
+
+const responsesTestModelsFixture = `{"models":[
+  {"slug":"gpt-7-nova","display_name":"GPT-7 Nova","visibility":"list","default_reasoning_level":"high",
+   "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]},
+  {"slug":"gpt-7-codex-max","display_name":"GPT-7 Codex Max","visibility":"list","default_reasoning_level":"medium",
+   "supported_reasoning_levels":[{"effort":"medium"},{"effort":"max"}]},
+  {"slug":"gpt-6.1-terra","display_name":"GPT-6.1 Terra","visibility":"list","default_reasoning_level":"low",
+   "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}]},
+  {"slug":"gpt-5.6-luna","display_name":"GPT-5.6 Luna","visibility":"list","default_reasoning_level":"medium",
+   "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"},{"effort":"xhigh"},{"effort":"max"}]}
+]}`
+
+func TestHandlersKeepModelsListedUpstream(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		path       string
+		body       string
+		handler    func(*Server, http.ResponseWriter, *http.Request)
+		wantModel  string
+		wantEffort string
+	}{
+		{
+			// "max" is not among the listed levels, so the upstream default applies.
+			name:       "chat completions with effort suffix",
+			path:       "/v1/chat/completions",
+			body:       `{"model":"gpt-7-nova-max","messages":[{"role":"user","content":"Reply OK."}],"stream":true}`,
+			handler:    (*Server).chatCompletionsHandler,
+			wantModel:  "gpt-7-nova",
+			wantEffort: "high",
+		},
+		{
+			name:       "responses with effort suffix",
+			path:       "/v1/responses",
+			body:       `{"model":"gpt-7-nova-max","input":"Reply OK.","stream":true}`,
+			handler:    (*Server).responsesHandler,
+			wantModel:  "gpt-7-nova",
+			wantEffort: "high",
+		},
+		{
+			name:       "slug ending in an effort word is not split",
+			path:       "/v1/responses",
+			body:       `{"model":"gpt-7-codex-max","input":"Reply OK.","stream":true}`,
+			handler:    (*Server).responsesHandler,
+			wantModel:  "gpt-7-codex-max",
+			wantEffort: "medium",
+		},
+		{
+			name:       "explicit none effort is preserved when omitted by catalog",
+			path:       "/v1/responses",
+			body:       `{"model":"gpt-7-nova-none","input":"Reply OK.","stream":true}`,
+			handler:    (*Server).responsesHandler,
+			wantModel:  "gpt-7-nova",
+			wantEffort: "none",
+		},
+		{
+			name:       "newly launched model missing from cached catalog is forwarded upstream",
+			path:       "/v1/responses",
+			body:       `{"model":"gpt-7-unlisted-high","input":"Reply OK.","stream":true}`,
+			handler:    (*Server).responsesHandler,
+			wantModel:  "gpt-7-unlisted",
+			wantEffort: "high",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var outbound map[string]interface{}
+			s := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}}
+			s.httpClient = responsesTestClient(func(r *http.Request) (*http.Response, error) {
+				if err := json.NewDecoder(r.Body).Decode(&outbound); err != nil {
+					t.Fatal(err)
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": {"text/event-stream"}},
+					Body:       io.NopCloser(strings.NewReader("event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n")),
+				}, nil
+			})
+
+			w := httptest.NewRecorder()
+			tc.handler(s, w, httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body)))
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+			if outbound["model"] != tc.wantModel {
+				t.Fatalf("outbound model = %v, want %s", outbound["model"], tc.wantModel)
+			}
+			reasoning, ok := outbound["reasoning"].(map[string]interface{})
+			if !ok || reasoning["effort"] != tc.wantEffort {
+				t.Fatalf("outbound reasoning = %v, want effort %s", outbound["reasoning"], tc.wantEffort)
+			}
+		})
+	}
+}
+
+func TestHandlersRejectBlankModels(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		path    string
+		body    string
+		handler func(*Server, http.ResponseWriter, *http.Request)
+	}{
+		{
+			name:    "chat completions missing model",
+			path:    "/v1/chat/completions",
+			body:    `{"messages":[{"role":"user","content":"Reply OK."}]}`,
+			handler: (*Server).chatCompletionsHandler,
+		},
+		{
+			name:    "chat completions effort suffix without base model",
+			path:    "/v1/chat/completions",
+			body:    `{"model":"-high","messages":[{"role":"user","content":"Reply OK."}]}`,
+			handler: (*Server).chatCompletionsHandler,
+		},
+		{
+			name:    "responses missing model",
+			path:    "/v1/responses",
+			body:    `{"input":"Reply OK."}`,
+			handler: (*Server).responsesHandler,
+		},
+		{
+			name:    "responses effort suffix without base model",
+			path:    "/v1/responses",
+			body:    `{"model":"-high","input":"Reply OK."}`,
+			handler: (*Server).responsesHandler,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}}
+			s.httpClient = responsesTestClient(func(r *http.Request) (*http.Response, error) {
+				t.Fatalf("unexpected upstream request for %s", r.URL)
+				return nil, nil
+			})
+
+			w := httptest.NewRecorder()
+			tc.handler(s, w, httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body)))
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), `"model_not_found"`) {
+				t.Fatalf("expected model_not_found error, got %s", w.Body.String())
+			}
+		})
+	}
+}
 
 func TestResponsesHandlerClientStreamModes(t *testing.T) {
 	const upstreamSSE = "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}}\n\n" +
@@ -231,7 +387,7 @@ func TestStreamingErrorLogMessageExcludesErrorDetails(t *testing.T) {
 	body := io.NopCloser(iotest.ErrReader(errors.New("private-stream-error")))
 	server.writeResponse(httptest.NewRecorder(), &http.Response{
 		Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: body,
-	}, http.StatusOK, modelGPT61Sol, true, false)
+	}, http.StatusOK, "gpt-6.1-sol", true, false)
 
 	decoder := json.NewDecoder(&output)
 	found := false

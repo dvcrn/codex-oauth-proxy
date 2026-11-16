@@ -25,7 +25,7 @@ func main() {
 	oauthFetcher := auth.NewOAuthFetcher(kvFetcher, &log)
 
 	// Create server using OAuth-wrapped fetcher
-	srv := app.NewServer(oauthFetcher, log, server.WithDeviceAuth(kvFetcher))
+	srv := app.NewServer(oauthFetcher, log, server.WithDeviceAuth(kvFetcher), server.WithModelsCache(kvFetcher))
 
 	// Serve using workers - it handles all the HTTP server setup
 	workers.Serve(srv)

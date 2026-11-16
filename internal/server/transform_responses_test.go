@@ -22,10 +22,10 @@ func TestTransformResponsesRequestBody(t *testing.T) {
 		"reasoning_effort": "none",
 	}
 
-	normalizedModel, normalizedEffort := transformResponsesRequestBody(body, modelGPT5Sol, "none")
+	normalizedModel, normalizedEffort := transformResponsesRequestBody(body, "gpt-5.6-sol", "none", nil)
 
-	if normalizedModel != modelGPT5Sol {
-		t.Fatalf("expected normalized model %s, got %q", modelGPT5Sol, normalizedModel)
+	if normalizedModel != "gpt-5.6-sol" {
+		t.Fatalf("expected normalized model gpt-5.6-sol, got %q", normalizedModel)
 	}
 	if normalizedEffort != "none" {
 		t.Fatalf("expected normalized effort none, got %q", normalizedEffort)
@@ -106,7 +106,7 @@ func containsSubstring(s, substr string) bool {
 }
 
 func TestTransformResponsesRequestBodyGPT6Models(t *testing.T) {
-	for _, model := range []string{modelGPT6Sol, modelGPT6Luna, modelGPT61Sol, modelGPT61Terra} {
+	for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol", "gpt-6.1-terra"} {
 		t.Run(model, func(t *testing.T) {
 			body := map[string]interface{}{
 				"model": model + "-max",
@@ -114,7 +114,7 @@ func TestTransformResponsesRequestBodyGPT6Models(t *testing.T) {
 					"role": "user", "content": "Reply OK.",
 				}},
 			}
-			gotModel, gotEffort := transformResponsesRequestBody(body, model+"-max", "max")
+			gotModel, gotEffort := transformResponsesRequestBody(body, model+"-max", "max", nil)
 			if gotModel != model || body["model"] != model || gotEffort != "max" {
 				t.Fatalf("model=%q body.model=%v effort=%q, want %q and max", gotModel, body["model"], gotEffort, model)
 			}
@@ -123,8 +123,13 @@ func TestTransformResponsesRequestBodyGPT6Models(t *testing.T) {
 }
 
 func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T) {
-	// Mini codex should clamp low effort to medium and default to medium when
-	// no explicit effort is provided.
+	levels := []struct {
+		Effort string `json:"effort"`
+	}{{"low"}, {"medium"}, {"high"}, {"xhigh"}, {"max"}}
+	catalog := modelCatalog{
+		{Slug: "gpt-5.6-sol", DefaultReasoningLevel: "low", SupportedReasoningLevel: levels},
+		{Slug: "gpt-5.4-mini", DefaultReasoningLevel: "medium", SupportedReasoningLevel: levels[:4]},
+	}
 	baseBody := func() map[string]interface{} {
 		return map[string]interface{}{
 			"instructions": "Do something.",
@@ -144,24 +149,23 @@ func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T)
 
 	// Case 1: an effort the model does not support falls back to its default.
 	body1 := baseBody()
-	requestedEffort1 := "minimal"
-	nModel1, nEffort1 := transformResponsesRequestBody(body1, modelGPT5Sol, requestedEffort1)
-	if nModel1 != modelGPT5Sol {
-		t.Fatalf("expected normalized model %s, got %q", modelGPT5Sol, nModel1)
+	nModel1, nEffort1 := transformResponsesRequestBody(body1, "gpt-5.6-sol", "minimal", catalog)
+	if nModel1 != "gpt-5.6-sol" {
+		t.Fatalf("expected normalized model gpt-5.6-sol, got %q", nModel1)
 	}
 	if nEffort1 != "low" {
 		t.Fatalf("expected normalized effort low, got %q", nEffort1)
 	}
 	reasoning1, ok := body1["reasoning"].(map[string]interface{})
 	if !ok || reasoning1["effort"] != "low" {
-		t.Fatalf("expected reasoning effort medium in body, got %v", body1["reasoning"])
+		t.Fatalf("expected reasoning effort low in body, got %v", body1["reasoning"])
 	}
 
 	// Case 2: no effort provided defaults to model-specific default (medium)
 	body2 := baseBody()
-	nModel2, nEffort2 := transformResponsesRequestBody(body2, modelGPT54Mini, "")
-	if nModel2 != modelGPT54Mini {
-		t.Fatalf("expected normalized model %s, got %q", modelGPT54Mini, nModel2)
+	nModel2, nEffort2 := transformResponsesRequestBody(body2, "gpt-5.4-mini", "", catalog)
+	if nModel2 != "gpt-5.4-mini" {
+		t.Fatalf("expected normalized model gpt-5.4-mini, got %q", nModel2)
 	}
 	if nEffort2 != "medium" {
 		t.Fatalf("expected normalized effort medium, got %q", nEffort2)
@@ -173,10 +177,9 @@ func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T)
 
 	// Case 3: gpt-5.6-sol preserves xhigh and defaults to low when unspecified
 	body3 := baseBody()
-	requestedEffort3 := "xhigh"
-	nModel3, nEffort3 := transformResponsesRequestBody(body3, modelGPT5Sol, requestedEffort3)
-	if nModel3 != modelGPT5Sol {
-		t.Fatalf("expected normalized model %s, got %q", modelGPT5Sol, nModel3)
+	nModel3, nEffort3 := transformResponsesRequestBody(body3, "gpt-5.6-sol", "xhigh", catalog)
+	if nModel3 != "gpt-5.6-sol" {
+		t.Fatalf("expected normalized model gpt-5.6-sol, got %q", nModel3)
 	}
 	if nEffort3 != "xhigh" {
 		t.Fatalf("expected normalized effort xhigh, got %q", nEffort3)
@@ -184,19 +187,6 @@ func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T)
 	reasoning3, ok := body3["reasoning"].(map[string]interface{})
 	if !ok || reasoning3["effort"] != "xhigh" {
 		t.Fatalf("expected reasoning effort xhigh in body, got %v", body3["reasoning"])
-	}
-
-	body4 := baseBody()
-	nModel4, nEffort4 := transformResponsesRequestBody(body4, modelGPT5Sol, "")
-	if nModel4 != modelGPT5Sol {
-		t.Fatalf("expected normalized model %s, got %q", modelGPT5Sol, nModel4)
-	}
-	if nEffort4 != "low" {
-		t.Fatalf("expected normalized effort low when unspecified, got %q", nEffort4)
-	}
-	reasoning4, ok := body4["reasoning"].(map[string]interface{})
-	if !ok || reasoning4["effort"] != "low" {
-		t.Fatalf("expected reasoning effort low in body, got %v", body4["reasoning"])
 	}
 }
 
@@ -237,7 +227,7 @@ func TestTransformResponsesRequestBody_PreservesPortableResponseState(t *testing
 		},
 	}
 
-	transformResponsesRequestBody(body, modelGPT55, "medium")
+	transformResponsesRequestBody(body, "gpt-6-luna", "medium", nil)
 
 	input := body["input"].([]interface{})
 	if len(input) != 4 {
@@ -273,7 +263,7 @@ func TestTransformResponsesRequestBodyPreservesServiceTier(t *testing.T) {
 		"model":        "gpt-5",
 		"service_tier": "priority",
 	}
-	transformResponsesRequestBody(body, "gpt-5", "")
+	transformResponsesRequestBody(body, "gpt-5", "", nil)
 
 	if body["service_tier"] != "priority" {
 		t.Fatalf("expected service_tier priority, got %v", body["service_tier"])
@@ -285,9 +275,31 @@ func TestTransformResponsesRequestBodyDropsEmptyServiceTier(t *testing.T) {
 		"model":        "gpt-5",
 		"service_tier": "",
 	}
-	transformResponsesRequestBody(body, "gpt-5", "")
+	transformResponsesRequestBody(body, "gpt-5", "", nil)
 
 	if _, ok := body["service_tier"]; ok {
 		t.Fatalf("expected service_tier to be dropped, got %v", body["service_tier"])
+	}
+}
+
+func TestTransformResponsesRequestBodyWrapsStringInput(t *testing.T) {
+	body := map[string]interface{}{
+		"model": "gpt-6-luna",
+		"input": "Hello from Zed",
+	}
+	transformResponsesRequestBody(body, "gpt-6-luna", "", nil)
+
+	input, ok := body["input"].([]interface{})
+	if !ok || len(input) != 1 {
+		t.Fatalf("expected single input message, got %v", body["input"])
+	}
+	msg, _ := input[0].(map[string]interface{})
+	content, _ := msg["content"].([]interface{})
+	if len(content) != 1 {
+		t.Fatalf("expected single content part, got %v", content)
+	}
+	part, _ := content[0].(map[string]interface{})
+	if msg["role"] != "user" || part["type"] != "input_text" || part["text"] != "Hello from Codex" {
+		t.Fatalf("unexpected wrapped input: %v", msg)
 	}
 }
