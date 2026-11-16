@@ -437,6 +437,11 @@ func TestAskCodexKeepsModelsListedUpstream(t *testing.T) {
 	assert.Equal(t, "gpt-7-nova", out.Model)
 	assert.Equal(t, "OK", out.Text)
 
-	_, err = srv.mcpAskCodex(t.Context(), askCodexInput{Prompt: "Reply OK.", Model: "gpt-5.5"})
-	require.ErrorContains(t, err, `model "gpt-5.5" is not available`)
+	out, err = srv.mcpAskCodex(t.Context(), askCodexInput{Prompt: "Reply OK.", Model: "gpt-7-unlisted-high"})
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-7-unlisted", outbound["model"])
+	assert.Equal(t, "gpt-7-unlisted", out.Model)
+
+	_, err = srv.mcpAskCodex(t.Context(), askCodexInput{Prompt: "Reply OK.", Model: "-high"})
+	require.ErrorContains(t, err, "model is required")
 }

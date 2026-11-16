@@ -5,6 +5,7 @@ package credentials
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/syumai/workers/cloudflare/kv"
 )
@@ -22,26 +23,23 @@ type kvCredentials struct {
 
 // CloudflareKVFetcher retrieves credentials from Cloudflare KV
 const (
-	kvBindingName        = "CODEX_AUTH"
 	deviceAuthSessionKey = "device-auth"
+	modelsCacheKey       = "upstream-models"
 )
 
-type CloudflareKVFetcher struct{}
+type CloudflareKVFetcher struct {
+	kvStore *kv.Namespace
+}
 
 // NewCloudflareKVFetcher creates a new Cloudflare KV-based credentials fetcher
 func NewCloudflareKVFetcher() (*CloudflareKVFetcher, error) {
-	if _, err := kv.NewNamespace(kvBindingName); err != nil {
-		return nil, fmt.Errorf("failed to initialize KV namespace: %w", err)
-	}
-	return &CloudflareKVFetcher{}, nil
-}
-
-func (c *CloudflareKVFetcher) namespace() (*kv.Namespace, error) {
-	ns, err := kv.NewNamespace(kvBindingName)
+	// In Cloudflare Workers, KV namespaces are accessed via bindings
+	// The binding name is configured in wrangler.toml
+	kvStore, err := kv.NewNamespace("CODEX_AUTH")
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize KV namespace: %w", err)
 	}
-	return ns, nil
+	return &CloudflareKVFetcher{kvStore: kvStore}, nil
 }
 
 // GetCredentials retrieves credentials from Cloudflare KV
@@ -113,11 +111,7 @@ func (c *CloudflareKVFetcher) SetInitialCredentials(accessToken, refreshToken st
 }
 
 func (c *CloudflareKVFetcher) LoadDeviceAuthSession() ([]byte, error) {
-	kvStore, err := c.namespace()
-	if err != nil {
-		return nil, err
-	}
-	session, err := kvStore.GetString(deviceAuthSessionKey, nil)
+	session, err := c.kvStore.GetString(deviceAuthSessionKey, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get device auth session: %w", err)
 	}
@@ -128,12 +122,30 @@ func (c *CloudflareKVFetcher) LoadDeviceAuthSession() ([]byte, error) {
 }
 
 func (c *CloudflareKVFetcher) SaveDeviceAuthSession(session []byte) error {
-	kvStore, err := c.namespace()
-	if err != nil {
-		return err
-	}
-	if err := kvStore.PutString(deviceAuthSessionKey, string(session), nil); err != nil {
+	if err := c.kvStore.PutString(deviceAuthSessionKey, string(session), nil); err != nil {
 		return fmt.Errorf("failed to save device auth session: %w", err)
+	}
+	return nil
+}
+
+func (c *CloudflareKVFetcher) LoadModelsCache() ([]byte, error) {
+	cached, err := c.kvStore.GetString(modelsCacheKey, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get models cache: %w", err)
+	}
+	if cached == "" || cached == "<null>" {
+		return nil, nil
+	}
+	return []byte(cached), nil
+}
+
+func (c *CloudflareKVFetcher) SaveModelsCache(data []byte, ttl time.Duration) error {
+	var opts *kv.PutOptions
+	if secs := int(ttl.Seconds()); secs >= 60 {
+		opts = &kv.PutOptions{ExpirationTTL: secs}
+	}
+	if err := c.kvStore.PutString(modelsCacheKey, string(data), opts); err != nil {
+		return fmt.Errorf("failed to save models cache: %w", err)
 	}
 	return nil
 }
@@ -157,12 +169,8 @@ func (c *CloudflareKVFetcher) RefreshCredentials() error {
 
 // getKVCredentials retrieves and unmarshals credentials from KV
 func (c *CloudflareKVFetcher) getKVCredentials() (*kvCredentials, error) {
-	kvStore, err := c.namespace()
-	if err != nil {
-		return nil, err
-	}
 	// Get credentials JSON from KV
-	credsJSON, err := kvStore.GetString("claude_oauth_credentials", nil)
+	credsJSON, err := c.kvStore.GetString("claude_oauth_credentials", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get credentials from KV: %w", err)
 	}
@@ -182,10 +190,6 @@ func (c *CloudflareKVFetcher) getKVCredentials() (*kvCredentials, error) {
 
 // setKVCredentials marshals and stores credentials to KV
 func (c *CloudflareKVFetcher) setKVCredentials(creds *kvCredentials) error {
-	kvStore, err := c.namespace()
-	if err != nil {
-		return err
-	}
 	// Marshal to JSON
 	credsJSON, err := json.Marshal(creds)
 	if err != nil {
@@ -193,7 +197,7 @@ func (c *CloudflareKVFetcher) setKVCredentials(creds *kvCredentials) error {
 	}
 
 	// Store in KV
-	if err := kvStore.PutString("claude_oauth_credentials", string(credsJSON), nil); err != nil {
+	if err := c.kvStore.PutString("claude_oauth_credentials", string(credsJSON), nil); err != nil {
 		return fmt.Errorf("failed to store credentials in KV: %w", err)
 	}
 

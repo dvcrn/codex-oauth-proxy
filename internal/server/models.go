@@ -7,13 +7,9 @@ package server
 // it, so the two must stay in sync.
 const codexClientVersion = "0.163.0"
 
-// modelCatalog is the live upstream model listing in backend priority order. A
-// nil or empty catalog is valid when the upstream listing is unavailable.
+// modelCatalog is the live upstream model listing. A nil or empty catalog is
+// valid when the upstream listing is unavailable.
 type modelCatalog []upstreamModel
-
-func newModelCatalog(models []upstreamModel) modelCatalog {
-	return modelCatalog(models)
-}
 
 func (c modelCatalog) lookup(slug string) (upstreamModel, bool) {
 	for _, model := range c {
@@ -74,6 +70,11 @@ type modelsResponse struct {
 // modelsFromUpstream converts the live entitlement listing into the
 // OpenAI-compatible metadata /v1/models serves.
 func modelsFromUpstream(upstream []upstreamModel) []modelMetadata {
+	baseSlugs := make(map[string]bool, len(upstream))
+	for _, model := range upstream {
+		baseSlugs[model.Slug] = true
+	}
+
 	models := make([]modelMetadata, 0, len(upstream))
 	for _, model := range upstream {
 		name := model.DisplayName
@@ -91,8 +92,12 @@ func modelsFromUpstream(upstream []upstreamModel) []modelMetadata {
 		models = append(models, base)
 
 		for _, effort := range model.efforts() {
+			variantID := model.Slug + "-" + effort
+			if baseSlugs[variantID] {
+				continue
+			}
 			variant := base
-			variant.ID = model.Slug + "-" + effort
+			variant.ID = variantID
 			variant.Name = base.Name + " (" + effort + " reasoning)"
 			models = append(models, variant)
 		}

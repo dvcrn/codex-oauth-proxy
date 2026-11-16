@@ -24,9 +24,8 @@ func NewOAuthFetcher(baseFetcher credentials.OAuthCredentialsFetcher, logger *ze
 		logger:      logger,
 		stopCh:      make(chan struct{}),
 	}
-	if enableBackgroundRefresh {
-		go f.backgroundRefresh()
-	}
+	// Start background refresh goroutine
+	go f.backgroundRefresh()
 	return f
 }
 

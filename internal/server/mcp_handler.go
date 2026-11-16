@@ -140,8 +140,8 @@ func (s *Server) mcpAskCodex(ctx context.Context, in askCodexInput) (askCodexOut
 
 	catalog := s.modelCatalogFor(ctx)
 	normalizedModel := normalizeModel(requestedModel, catalog)
-	if len(catalog) > 0 && !catalog.lists(normalizedModel) {
-		return askCodexOutput{}, fmt.Errorf("model %q is not available; call ask_codex_models to list available models", requestedModel)
+	if normalizedModel == "" {
+		return askCodexOutput{}, fmt.Errorf("model is required; call ask_codex_models to list available models")
 	}
 	body, err := json.Marshal(buildCodexRequestBody(requestData, catalog))
 	if err != nil {

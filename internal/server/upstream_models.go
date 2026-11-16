@@ -29,6 +29,24 @@ const modelLookupTimeout = 5 * time.Second
 // fails, so an unavailable models endpoint does not slow every request.
 const modelLookupBackoff = 30 * time.Second
 
+// storedBackoffTTL satisfies Cloudflare KV's 60s minimum expiration_ttl while
+// RetryAtUnix enforces the exact modelLookupBackoff window.
+const storedBackoffTTL = time.Minute
+
+// ModelsCacheStore persists the upstream model listing across stateless
+// runtimes such as Cloudflare Workers.
+type ModelsCacheStore interface {
+	LoadModelsCache() ([]byte, error)
+	SaveModelsCache(data []byte, ttl time.Duration) error
+}
+
+type cachedModelsSnapshot struct {
+	ClientVersion string          `json:"client_version"`
+	AccountID     string          `json:"account_id,omitempty"`
+	Models        []upstreamModel `json:"models,omitempty"`
+	RetryAtUnix   int64           `json:"retry_at_unix,omitempty"`
+}
+
 // upstreamModel is the subset of the backend's model description this proxy
 // uses; the full payload is mostly CLI-specific execution settings.
 type upstreamModel struct {
@@ -90,32 +108,61 @@ func (e *upstreamAuthError) Unwrap() error {
 	return e.err
 }
 
+var errModelsLookupBackoff = fmt.Errorf("upstream models lookup in backoff")
+
 // fetchUpstreamModels asks the ChatGPT backend which models the current
 // account can use, returning only the user-visible ones. Results are cached
 // for upstreamModelsTTL.
 //
-// A failure is returned rather than falling back to the built-in model table,
-// which drifts out of date as models are retired and would advertise IDs that
-// fail at call time.
-//
-// Concurrent cache misses share one fetch, which runs outside modelsCacheMu
-// and is not cancelled when one waiting caller gives up.
+// On long-lived servers, concurrent cache misses share one fetch, which runs
+// outside modelsCacheMu and is not cancelled when one waiting caller gives up.
 func (s *Server) fetchUpstreamModels(ctx context.Context) ([]upstreamModel, error) {
+	return s.loadOrFetchUpstreamModels(ctx, false)
+}
+
+func (s *Server) loadOrFetchUpstreamModels(ctx context.Context, honorStoredBackoff bool) ([]upstreamModel, error) {
 	s.modelsCacheMu.Lock()
-	if s.modelsCache != nil && time.Now().Before(s.modelsCacheExpiry) {
-		cached := s.modelsCache
-		s.modelsCacheMu.Unlock()
+	cached := s.modelsCache
+	fresh := cached != nil && time.Now().Before(s.modelsCacheExpiry)
+	s.modelsCacheMu.Unlock()
+	if fresh {
 		return cached, nil
 	}
-	s.modelsCacheMu.Unlock()
 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if !shareFetchesAcrossRequests {
+
+	if !detachBackgroundFetches {
+		if cached == nil {
+			stored, inBackoff := s.loadStoredModelsCache()
+			if len(stored) > 0 {
+				return stored, nil
+			}
+			if honorStoredBackoff && inBackoff {
+				return nil, errModelsLookupBackoff
+			}
+		}
 		return s.refreshUpstreamModels(ctx)
 	}
+
 	fetch := s.modelsFetch.DoChan("models", func() (interface{}, error) {
+		s.modelsCacheMu.Lock()
+		nowCached := s.modelsCache
+		nowFresh := nowCached != nil && time.Now().Before(s.modelsCacheExpiry)
+		s.modelsCacheMu.Unlock()
+		if nowFresh {
+			return nowCached, nil
+		}
+		if nowCached == nil {
+			stored, inBackoff := s.loadStoredModelsCache()
+			if len(stored) > 0 {
+				return stored, nil
+			}
+			if honorStoredBackoff && inBackoff {
+				return nil, errModelsLookupBackoff
+			}
+		}
 		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), modelsFetchTimeout)
 		defer cancel()
 		return s.refreshUpstreamModels(fetchCtx)
@@ -134,7 +181,7 @@ func (s *Server) fetchUpstreamModels(ctx context.Context) ([]upstreamModel, erro
 // refreshUpstreamModels fetches the listing and stores the visible models in
 // the cache.
 func (s *Server) refreshUpstreamModels(ctx context.Context) ([]upstreamModel, error) {
-	parsed, err := s.fetchUpstreamModelsWithRetry(ctx)
+	parsed, accountID, err := s.fetchUpstreamModelsWithRetry(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -151,10 +198,8 @@ func (s *Server) refreshUpstreamModels(ctx context.Context) ([]upstreamModel, er
 		return nil, fmt.Errorf("upstream returned no usable models for client_version %s", codexClientVersion)
 	}
 
-	s.modelsCacheMu.Lock()
-	s.modelsCache = visible
-	s.modelsCacheExpiry = time.Now().Add(upstreamModelsTTL)
-	s.modelsCacheMu.Unlock()
+	s.setModelsCache(visible)
+	s.saveStoredModelsCache(accountID, visible)
 
 	s.logger.Info().
 		Int("model_count", len(visible)).
@@ -164,17 +209,17 @@ func (s *Server) refreshUpstreamModels(ctx context.Context) ([]upstreamModel, er
 	return visible, nil
 }
 
-func (s *Server) fetchUpstreamModelsWithRetry(ctx context.Context) (*upstreamModelsResponse, error) {
-	parsed, statusCode, detail, err := s.fetchUpstreamModelsOnce(ctx)
+func (s *Server) fetchUpstreamModelsWithRetry(ctx context.Context) (*upstreamModelsResponse, string, error) {
+	parsed, accountID, statusCode, detail, err := s.fetchUpstreamModelsOnce(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if statusCode != http.StatusUnauthorized {
 		if statusCode != http.StatusOK {
-			return nil, fmt.Errorf("failed to list models: upstream returned %d: %s",
+			return nil, "", fmt.Errorf("failed to list models: upstream returned %d: %s",
 				statusCode, detail)
 		}
-		return parsed, nil
+		return parsed, accountID, nil
 	}
 
 	s.logger.Warn().
@@ -182,35 +227,35 @@ func (s *Server) fetchUpstreamModelsWithRetry(ctx context.Context) (*upstreamMod
 		Msg("Received 401 while listing upstream models, attempting token refresh")
 
 	if err := s.credsFetcher.RefreshCredentials(); err != nil {
-		return nil, &upstreamAuthError{statusCode: statusCode, detail: detail, err: fmt.Errorf("token refresh failed: %w", err)}
+		return nil, "", &upstreamAuthError{statusCode: statusCode, detail: detail, err: fmt.Errorf("token refresh failed: %w", err)}
 	}
 
 	s.logger.Info().Msg("Successfully refreshed credentials, retrying upstream model list")
 
-	parsed, statusCode, detail, err = s.fetchUpstreamModelsOnce(ctx)
+	parsed, accountID, statusCode, detail, err = s.fetchUpstreamModelsOnce(ctx)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if statusCode == http.StatusUnauthorized {
-		return nil, &upstreamAuthError{statusCode: statusCode, detail: detail}
+		return nil, "", &upstreamAuthError{statusCode: statusCode, detail: detail}
 	}
 	if statusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to list models: upstream returned %d: %s",
+		return nil, "", fmt.Errorf("failed to list models: upstream returned %d: %s",
 			statusCode, detail)
 	}
 
-	return parsed, nil
+	return parsed, accountID, nil
 }
 
-func (s *Server) fetchUpstreamModelsOnce(ctx context.Context) (*upstreamModelsResponse, int, string, error) {
+func (s *Server) fetchUpstreamModelsOnce(ctx context.Context) (*upstreamModelsResponse, string, int, string, error) {
 	token, accountID, err := s.credsFetcher.GetCredentials()
 	if err != nil {
-		return nil, 0, "", fmt.Errorf("failed to get credentials: %w", err)
+		return nil, "", 0, "", fmt.Errorf("failed to get credentials: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamModelsURL, nil)
 	if err != nil {
-		return nil, 0, "", fmt.Errorf("failed to create models request: %w", err)
+		return nil, "", 0, "", fmt.Errorf("failed to create models request: %w", err)
 	}
 
 	query := req.URL.Query()
@@ -231,67 +276,189 @@ func (s *Server) fetchUpstreamModelsOnce(ctx context.Context) (*upstreamModelsRe
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return nil, 0, "", fmt.Errorf("failed to list models: %w", err)
+		return nil, "", 0, "", fmt.Errorf("failed to list models: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		detail, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, resp.StatusCode, strings.TrimSpace(string(detail)), nil
+		return nil, accountID, resp.StatusCode, strings.TrimSpace(string(detail)), nil
 	}
 
 	var parsed upstreamModelsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
-		return nil, resp.StatusCode, "", fmt.Errorf("failed to parse models response: %w", err)
+		return nil, "", resp.StatusCode, "", fmt.Errorf("failed to parse models response: %w", err)
 	}
 
-	return &parsed, resp.StatusCode, "", nil
+	return &parsed, accountID, resp.StatusCode, "", nil
 }
 
 // modelCatalogFor returns the live model catalog that request normalization
 // matches names against, from the cache or a fresh fetch. An expired cache is
-// served while a background fetch refreshes it, except on Workers, which
-// cannot share that fetch across requests. A failed lookup
-// returns nil, and normalization falls back to the built-in table until
-// modelLookupBackoff passes, unless another caller refreshes the cache first.
+// served while one background fetch refreshes it. A failed lookup returns nil
+// and pauses request-path lookups for modelLookupBackoff unless another caller
+// refreshes the cache first.
 func (s *Server) modelCatalogFor(ctx context.Context) modelCatalog {
 	s.modelsCacheMu.Lock()
 	now := time.Now()
-	cached, fresh := s.modelsCache, now.Before(s.modelsCacheExpiry)
+	cached := s.modelsCache
+	fresh := cached != nil && now.Before(s.modelsCacheExpiry)
 	inBackoff := now.Before(s.modelsLookupRetryAt)
+	refreshBg := detachBackgroundFetches && cached != nil && !fresh && !inBackoff
+	if refreshBg {
+		s.modelsLookupRetryAt = now.Add(modelLookupBackoff)
+	}
 	s.modelsCacheMu.Unlock()
-	if cached != nil && fresh {
-		return newModelCatalog(cached)
+
+	if fresh {
+		return modelCatalog(cached)
 	}
-	if cached != nil && shareFetchesAcrossRequests {
-		go s.PrefetchModels(context.WithoutCancel(ctx))
-		return newModelCatalog(cached)
+	if cached != nil {
+		if refreshBg {
+			go s.PrefetchModels(context.WithoutCancel(ctx))
+		}
+		return modelCatalog(cached)
 	}
-	if inBackoff {
+	if inBackoff || ctx.Err() != nil {
 		return nil
 	}
 
 	lookupCtx, cancel := context.WithTimeout(ctx, modelLookupTimeout)
 	defer cancel()
-	models, err := s.fetchUpstreamModels(lookupCtx)
+	models, err := s.loadOrFetchUpstreamModels(lookupCtx, true)
 	if err != nil {
-		s.logger.Warn().Err(err).Msg("Failed to list upstream models for request normalization")
-		if ctx.Err() != nil {
-			// The client went away; that says nothing about upstream health.
-			return nil
+		if err != errModelsLookupBackoff {
+			s.logger.Warn().Err(err).Msg("Failed to list upstream models for request normalization")
+			if ctx.Err() == nil {
+				s.recordModelsLookupBackoff()
+			}
 		}
-		s.modelsCacheMu.Lock()
-		s.modelsLookupRetryAt = time.Now().Add(modelLookupBackoff)
-		s.modelsCacheMu.Unlock()
 		return nil
 	}
-	return newModelCatalog(models)
+	return modelCatalog(models)
+}
+
+func (s *Server) setModelsCache(visible []upstreamModel) {
+	s.modelsCacheMu.Lock()
+	s.modelsCache = visible
+	s.modelsCacheExpiry = time.Now().Add(upstreamModelsTTL)
+	s.modelsLookupRetryAt = time.Time{}
+	s.modelsCacheMu.Unlock()
+}
+
+func (s *Server) invalidateModelsCache() {
+	s.modelsCacheMu.Lock()
+	s.modelsCache = nil
+	s.modelsCacheExpiry = time.Time{}
+	s.modelsLookupRetryAt = time.Time{}
+	s.modelsCacheMu.Unlock()
+}
+
+func (s *Server) currentAccountID() string {
+	if s.credsFetcher == nil {
+		return ""
+	}
+	_, accountID, err := s.credsFetcher.GetCredentials()
+	if err != nil {
+		return ""
+	}
+	return accountID
+}
+
+func (s *Server) loadStoredModelsCache() (models []upstreamModel, inBackoff bool) {
+	if s.modelsCacheStore == nil {
+		return nil, false
+	}
+	data, err := s.modelsCacheStore.LoadModelsCache()
+	if err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to load cached upstream models")
+		return nil, false
+	}
+	if len(data) == 0 {
+		return nil, false
+	}
+	var snapshot cachedModelsSnapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil || snapshot.ClientVersion != codexClientVersion {
+		return nil, false
+	}
+	accountID := s.currentAccountID()
+	if snapshot.AccountID != "" && accountID != "" && snapshot.AccountID != accountID {
+		return nil, false
+	}
+	if len(snapshot.Models) > 0 {
+		s.setModelsCache(snapshot.Models)
+		return snapshot.Models, false
+	}
+	if snapshot.RetryAtUnix > 0 {
+		retryAt := time.Unix(snapshot.RetryAtUnix, 0)
+		if time.Now().Before(retryAt) {
+			s.modelsCacheMu.Lock()
+			s.modelsLookupRetryAt = retryAt
+			s.modelsCacheMu.Unlock()
+			return nil, true
+		}
+	}
+	return nil, false
+}
+
+func (s *Server) saveStoredModelsCache(accountID string, visible []upstreamModel) {
+	if s.modelsCacheStore == nil {
+		return
+	}
+	encoded, err := json.Marshal(cachedModelsSnapshot{
+		ClientVersion: codexClientVersion,
+		AccountID:     accountID,
+		Models:        visible,
+	})
+	if err != nil {
+		return
+	}
+	if err := s.modelsCacheStore.SaveModelsCache(encoded, upstreamModelsTTL); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to save upstream models cache")
+	}
+}
+
+func (s *Server) saveStoredModelsBackoff(retryAt time.Time) {
+	if s.modelsCacheStore == nil {
+		return
+	}
+	encoded, err := json.Marshal(cachedModelsSnapshot{
+		ClientVersion: codexClientVersion,
+		AccountID:     s.currentAccountID(),
+		RetryAtUnix:   retryAt.Unix(),
+	})
+	if err != nil {
+		return
+	}
+	if err := s.modelsCacheStore.SaveModelsCache(encoded, storedBackoffTTL); err != nil {
+		s.logger.Warn().Err(err).Msg("Failed to save upstream models lookup backoff")
+	}
+}
+
+func (s *Server) recordModelsLookupBackoff() {
+	var persistRetryAt time.Time
+	s.modelsCacheMu.Lock()
+	if s.modelsCache == nil || !time.Now().Before(s.modelsCacheExpiry) {
+		retryAt := time.Now().Add(modelLookupBackoff)
+		s.modelsLookupRetryAt = retryAt
+		if s.modelsCache == nil {
+			persistRetryAt = retryAt
+		}
+	}
+	s.modelsCacheMu.Unlock()
+
+	if !persistRetryAt.IsZero() {
+		s.saveStoredModelsBackoff(persistRetryAt)
+	}
 }
 
 // PrefetchModels fills the model cache so the first requests don't wait on
-// the upstream listing. A failure is logged and left to the request path.
+// the upstream listing. A failure logs a warning and starts the lookup backoff.
 func (s *Server) PrefetchModels(ctx context.Context) {
 	if _, err := s.fetchUpstreamModels(ctx); err != nil {
 		s.logger.Warn().Err(err).Msg("Failed to prefetch upstream models")
+		if ctx.Err() == nil {
+			s.recordModelsLookupBackoff()
+		}
 	}
 }

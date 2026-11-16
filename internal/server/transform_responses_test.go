@@ -126,10 +126,10 @@ func TestTransformResponsesRequestBody_ModelSpecificReasoningClamp(t *testing.T)
 	levels := []struct {
 		Effort string `json:"effort"`
 	}{{"low"}, {"medium"}, {"high"}, {"xhigh"}, {"max"}}
-	catalog := newModelCatalog([]upstreamModel{
+	catalog := modelCatalog{
 		{Slug: "gpt-5.6-sol", DefaultReasoningLevel: "low", SupportedReasoningLevel: levels},
 		{Slug: "gpt-5.4-mini", DefaultReasoningLevel: "medium", SupportedReasoningLevel: levels[:4]},
-	})
+	}
 	baseBody := func() map[string]interface{} {
 		return map[string]interface{}{
 			"instructions": "Do something.",

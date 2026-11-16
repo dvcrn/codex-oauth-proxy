@@ -103,8 +103,7 @@ func transformResponsesRequestBody(body map[string]interface{}, requestedModel s
 		delete(body, "max_tokens")
 	}
 
-	normalizedEffort := normalizeReasoningEffort(requestedEffort)
-	clampedEffort := clampReasoningEffortForModel(normalizedEffort, normalizedModel, catalog)
+	clampedEffort := clampReasoningEffortForModel(requestedEffort, normalizedModel, catalog)
 	summary := resolveReasoningSummary(body)
 	reasoningSettings := map[string]interface{}{}
 	if summary != nil {

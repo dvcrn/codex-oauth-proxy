@@ -10,8 +10,6 @@ import (
 	"github.com/syumai/workers/cloudflare/fetch"
 )
 
-const enableBackgroundRefresh = false
-
 // workersHTTPClient routes requests through the Workers fetch API. The stdlib
 // transport is unavailable under js/wasm and panics with "Illegal invocation".
 type workersHTTPClient struct {

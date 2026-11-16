@@ -8,10 +8,9 @@ import (
 	"time"
 )
 
-// shareFetchesAcrossRequests reports whether one request may wait on an
-// upstream fetch another request started. Workers forbids sharing I/O between
-// requests and may cancel a request's subrequests once it returns.
-const shareFetchesAcrossRequests = true
+// detachBackgroundFetches reports whether upstream model refreshes may outlive
+// the request that triggered them.
+const detachBackgroundFetches = true
 
 // NewHTTPClient creates a new HTTP client for regular environments
 func NewHTTPClient() HTTPClient {

@@ -48,6 +48,7 @@ type Server struct {
 	logger            zerolog.Logger
 	disableHealthLogs bool
 	deviceAuth        *DeviceAuth
+	modelsCacheStore  ModelsCacheStore
 
 	// Cached result of the upstream model listing, guarded by modelsCacheMu.
 	modelsCacheMu     sync.Mutex
@@ -64,6 +65,12 @@ type Option func(*Server)
 func WithDeviceAuth(store DeviceAuthStore) Option {
 	return func(s *Server) {
 		s.deviceAuth = newDeviceAuth(store, s.httpClient)
+	}
+}
+
+func WithModelsCache(store ModelsCacheStore) Option {
+	return func(s *Server) {
+		s.modelsCacheStore = store
 	}
 }
 
@@ -229,13 +236,18 @@ func (s *Server) chatCompletionsHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Extract request parameters for logging
 	requestedModel := resolveRequestModel(requestData)
+	if requestedModel == "" {
+		writeModelError(w, "model is required")
+		return
+	}
 	catalog := s.modelCatalogFor(r.Context())
 	normalizedModel := normalizeModel(requestedModel, catalog)
-	if !validateRequestModel(w, requestedModel, normalizedModel, catalog) {
+	if normalizedModel == "" {
+		writeModelError(w, "model is required")
 		return
 	}
 	reasoningEffort := resolveReasoningEffort(requestData, catalog)
-	normalizedReasoningEffort := normalizeReasoningEffort(reasoningEffort)
+	normalizedReasoningEffort := clampReasoningEffortForModel(reasoningEffort, normalizedModel, catalog)
 
 	messageCount := 0
 	if messages, ok := requestData["messages"].([]interface{}); ok {
@@ -384,19 +396,23 @@ func (s *Server) responsesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	requestedModel := resolveRequestModel(requestData)
+	if requestedModel == "" {
+		writeModelError(w, "model is required")
+		return
+	}
 	catalog := s.modelCatalogFor(r.Context())
 	requestedEffort := resolveReasoningEffort(requestData, catalog)
-	inputCount := 0
-	if input, ok := requestData["input"].([]interface{}); ok {
-		inputCount = len(input)
-	}
-
 	clientStream, _ := requestData["stream"].(bool)
 
 	// Transform request body
 	normalizedModel, normalizedEffort := transformResponsesRequestBody(requestData, requestedModel, requestedEffort, catalog)
-	if !validateRequestModel(w, requestedModel, normalizedModel, catalog) {
+	if normalizedModel == "" {
+		writeModelError(w, "model is required")
 		return
+	}
+	inputCount := 0
+	if input, ok := requestData["input"].([]interface{}); ok {
+		inputCount = len(input)
 	}
 	cacheKey, _ := requestData["prompt_cache_key"].(string)
 
@@ -508,18 +524,6 @@ func writeModelError(w http.ResponseWriter, message string) {
 			"code":    "model_not_found",
 		},
 	})
-}
-
-func validateRequestModel(w http.ResponseWriter, requestedModel, normalizedModel string, catalog modelCatalog) bool {
-	if normalizedModel == "" {
-		writeModelError(w, "model is required")
-		return false
-	}
-	if len(catalog) > 0 && !catalog.lists(normalizedModel) {
-		writeModelError(w, fmt.Sprintf("The requested model %q does not exist or you do not have access to it.", requestedModel))
-		return false
-	}
-	return true
 }
 
 func previewResponseBody(resp *http.Response) string {
@@ -1048,6 +1052,7 @@ func (s *Server) credentialsHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to update credentials", http.StatusInternalServerError)
 		return
 	}
+	s.invalidateModelsCache()
 
 	s.logger.Info().Msg("OAuth credentials updated successfully")
 

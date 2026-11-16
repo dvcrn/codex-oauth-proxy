@@ -159,10 +159,10 @@ func TestNormalizeModel(t *testing.T) {
 }
 
 func TestNormalizeModelKeepsCatalogModels(t *testing.T) {
-	catalog := newModelCatalog([]upstreamModel{
+	catalog := modelCatalog{
 		{Slug: "gpt-7-nova"},
 		{Slug: "gpt-7-codex-max"},
-	})
+	}
 	testCases := []struct {
 		name     string
 		input    string
@@ -299,11 +299,11 @@ func TestCollectUserContentPreservesHTTPImageURL(t *testing.T) {
 func TestClampReasoningEffortForCatalogModel(t *testing.T) {
 	levels := []struct {
 		Effort string `json:"effort"`
-	}{{"low"}, {"medium"}, {"high"}, {"ultra"}}
-	catalog := newModelCatalog([]upstreamModel{
+	}{{"xlow"}, {"low"}, {"medium"}, {"high"}, {"ultra"}}
+	catalog := modelCatalog{
 		{Slug: "gpt-7-nova", DefaultReasoningLevel: "high", SupportedReasoningLevel: levels},
 		{Slug: "gpt-7-ultra", DefaultReasoningLevel: "ultra", SupportedReasoningLevel: levels},
-	})
+	}
 	tests := []struct {
 		name        string
 		model       string
@@ -312,9 +312,14 @@ func TestClampReasoningEffortForCatalogModel(t *testing.T) {
 	}{
 		{"upstream default when empty", "gpt-7-nova", "", "high"},
 		{"listed effort kept", "gpt-7-nova", "low", "low"},
+		{"new upstream effort kept", "gpt-7-nova", "XLOW", "xlow"},
+		{"explicit none kept when upstream omits it", "gpt-7-nova", "none", "none"},
 		{"unlisted effort -> upstream default", "gpt-7-nova", "max", "high"},
+		{"wire-unsupported effort -> upstream default", "gpt-7-nova", "ultra", "high"},
 		{"wire-unsupported upstream default is dropped", "gpt-7-ultra", "", ""},
-		{"unlisted model passes effort through", "gpt-unlisted", "medium", "medium"},
+		{"disallowed effort dropped when upstream default is ultra", "gpt-7-ultra", "max", ""},
+		{"unlisted model passes valid effort through", "gpt-unlisted", "medium", "medium"},
+		{"unlisted model drops invalid effort", "gpt-unlisted", "aggressive", ""},
 	}
 
 	for _, tc := range tests {

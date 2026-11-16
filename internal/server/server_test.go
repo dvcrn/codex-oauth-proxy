@@ -114,9 +114,8 @@ func TestWriteResponseResponsesStreamWithoutUpstreamContentType(t *testing.T) {
 	}
 }
 
-// responsesTestClient fakes the Responses endpoint with f. Model listing
-// requests get responsesTestModelsFixture instead, so handlers can resolve
-// models the built-in table does not know.
+// responsesTestClient fakes the Responses endpoint with f and serves
+// responsesTestModelsFixture on /codex/models listing requests.
 type responsesTestClient func(*http.Request) (*http.Response, error)
 
 func (f responsesTestClient) Do(r *http.Request) (*http.Response, error) {
@@ -130,9 +129,6 @@ func (f responsesTestClient) Do(r *http.Request) (*http.Response, error) {
 	return f(r)
 }
 
-// responsesTestModelsFixture lists models missing from the built-in table,
-// one of them with a slug that ends in an effort word, plus built-in models
-// exercised by handler tests.
 const responsesTestModelsFixture = `{"models":[
   {"slug":"gpt-7-nova","display_name":"GPT-7 Nova","visibility":"list","default_reasoning_level":"high",
    "supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]},
@@ -178,6 +174,22 @@ func TestHandlersKeepModelsListedUpstream(t *testing.T) {
 			wantModel:  "gpt-7-codex-max",
 			wantEffort: "medium",
 		},
+		{
+			name:       "explicit none effort is preserved when omitted by catalog",
+			path:       "/v1/responses",
+			body:       `{"model":"gpt-7-nova-none","input":"Reply OK.","stream":true}`,
+			handler:    (*Server).responsesHandler,
+			wantModel:  "gpt-7-nova",
+			wantEffort: "none",
+		},
+		{
+			name:       "newly launched model missing from cached catalog is forwarded upstream",
+			path:       "/v1/responses",
+			body:       `{"model":"gpt-7-unlisted-high","input":"Reply OK.","stream":true}`,
+			handler:    (*Server).responsesHandler,
+			wantModel:  "gpt-7-unlisted",
+			wantEffort: "high",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var outbound map[string]interface{}
@@ -210,7 +222,7 @@ func TestHandlersKeepModelsListedUpstream(t *testing.T) {
 	}
 }
 
-func TestHandlersRejectUnlistedAndBlankModels(t *testing.T) {
+func TestHandlersRejectBlankModels(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		path    string
@@ -218,27 +230,27 @@ func TestHandlersRejectUnlistedAndBlankModels(t *testing.T) {
 		handler func(*Server, http.ResponseWriter, *http.Request)
 	}{
 		{
-			name:    "chat completions unlisted model",
-			path:    "/v1/chat/completions",
-			body:    `{"model":"gpt-5.5","messages":[{"role":"user","content":"Reply OK."}]}`,
-			handler: (*Server).chatCompletionsHandler,
-		},
-		{
-			name:    "chat completions blank model",
+			name:    "chat completions missing model",
 			path:    "/v1/chat/completions",
 			body:    `{"messages":[{"role":"user","content":"Reply OK."}]}`,
 			handler: (*Server).chatCompletionsHandler,
 		},
 		{
-			name:    "responses unlisted model",
+			name:    "chat completions effort suffix without base model",
+			path:    "/v1/chat/completions",
+			body:    `{"model":"-high","messages":[{"role":"user","content":"Reply OK."}]}`,
+			handler: (*Server).chatCompletionsHandler,
+		},
+		{
+			name:    "responses missing model",
 			path:    "/v1/responses",
-			body:    `{"model":"gpt-5.5","input":"Reply OK."}`,
+			body:    `{"input":"Reply OK."}`,
 			handler: (*Server).responsesHandler,
 		},
 		{
-			name:    "responses blank model",
+			name:    "responses effort suffix without base model",
 			path:    "/v1/responses",
-			body:    `{"input":"Reply OK."}`,
+			body:    `{"model":"-high","input":"Reply OK."}`,
 			handler: (*Server).responsesHandler,
 		},
 	} {

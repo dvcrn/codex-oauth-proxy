@@ -80,6 +80,7 @@ func (s *Server) tokensHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to store credentials", http.StatusInternalServerError)
 		return
 	}
+	s.invalidateModelsCache()
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", "application/json")
@@ -136,6 +137,9 @@ func (s *Server) deviceAuthStatusHandler(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		status, err = s.deviceAuth.Poll(r.Context())
+		if err == nil && status.Status == "authenticated" {
+			s.invalidateModelsCache()
+		}
 	}
 	s.writeDeviceAuthResponse(w, status, err)
 }

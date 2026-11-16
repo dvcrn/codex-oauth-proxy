@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -13,6 +14,25 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type memoryModelsCacheStore struct {
+	data  []byte
+	ttl   time.Duration
+	loads int
+	saves int
+}
+
+func (m *memoryModelsCacheStore) LoadModelsCache() ([]byte, error) {
+	m.loads++
+	return m.data, nil
+}
+
+func (m *memoryModelsCacheStore) SaveModelsCache(data []byte, ttl time.Duration) error {
+	m.saves++
+	m.data = append([]byte(nil), data...)
+	m.ttl = ttl
+	return nil
+}
 
 func TestModelCatalogForLookupPolicy(t *testing.T) {
 	t.Run("prefetched listing serves later lookups", func(t *testing.T) {
@@ -53,14 +73,29 @@ func TestModelCatalogForLookupPolicy(t *testing.T) {
 		srv.modelsCacheExpiry = time.Now().Add(-time.Minute)
 
 		assert.True(t, srv.modelCatalogFor(t.Context()).lists("gpt-7-nova"))
+		assert.True(t, srv.modelCatalogFor(t.Context()).lists("gpt-7-nova"))
 
 		require.Eventually(t, func() bool { return stub.calls.Load() == 1 }, time.Second, time.Millisecond)
 		close(stub.release)
 		require.Eventually(t, func() bool {
 			srv.modelsCacheMu.Lock()
 			defer srv.modelsCacheMu.Unlock()
-			return len(srv.modelsCache) == 2
+			return len(srv.modelsCache) == 2 && srv.modelsLookupRetryAt.IsZero()
 		}, time.Second, time.Millisecond)
+	})
+
+	t.Run("expired cache refresh failure backs off instead of stampeding", func(t *testing.T) {
+		var calls atomic.Int32
+		failing := &atomicFailingModelsClient{calls: &calls}
+		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: failing}
+		srv.modelsCache = []upstreamModel{{Slug: "gpt-7-nova"}}
+		srv.modelsCacheExpiry = time.Now().Add(-time.Minute)
+
+		assert.True(t, srv.modelCatalogFor(t.Context()).lists("gpt-7-nova"))
+		require.Eventually(t, func() bool { return calls.Load() == 1 }, time.Second, time.Millisecond)
+
+		assert.True(t, srv.modelCatalogFor(t.Context()).lists("gpt-7-nova"))
+		assert.Equal(t, int32(1), calls.Load(), "expired cache refresh must respect backoff after failure")
 	})
 
 	t.Run("cancelled caller does not start the backoff", func(t *testing.T) {
@@ -73,6 +108,100 @@ func TestModelCatalogForLookupPolicy(t *testing.T) {
 		assert.True(t, srv.modelsLookupRetryAt.IsZero())
 		assert.Equal(t, 0, stub.calls, "a cancelled caller must not start a fetch")
 	})
+
+	t.Run("failed prefetch starts lookup backoff", func(t *testing.T) {
+		stub := &stubModelsHTTPClient{statusCode: http.StatusBadGateway}
+		srv := &Server{logger: zerolog.Nop(), credsFetcher: stubCredentialsFetcher{}, httpClient: stub}
+
+		srv.PrefetchModels(t.Context())
+		assert.Equal(t, 1, stub.calls)
+
+		assert.Nil(t, srv.modelCatalogFor(t.Context()))
+		assert.Equal(t, 1, stub.calls, "lookup inside prefetch backoff must not refetch")
+
+		srv.invalidateModelsCache()
+		assert.True(t, srv.modelsLookupRetryAt.IsZero())
+	})
+
+	t.Run("external cache store scopes by version and account and persists backoff", func(t *testing.T) {
+		store := &memoryModelsCacheStore{}
+		encoded, err := json.Marshal(cachedModelsSnapshot{
+			ClientVersion: codexClientVersion,
+			AccountID:     "test-account",
+			Models:        []upstreamModel{{Slug: "gpt-7-cached", Visibility: "list"}},
+		})
+		require.NoError(t, err)
+		store.data = encoded
+
+		stub := &stubModelsHTTPClient{body: upstreamModelsFixture}
+		srv := &Server{
+			logger:           zerolog.Nop(),
+			credsFetcher:     stubCredentialsFetcher{},
+			httpClient:       stub,
+			modelsCacheStore: store,
+		}
+
+		assert.True(t, srv.modelCatalogFor(t.Context()).lists("gpt-7-cached"))
+		assert.Equal(t, 0, stub.calls, "matching stored snapshot must skip upstream fetch")
+		assert.Equal(t, 1, store.loads)
+
+		// A snapshot for a different account must be ignored and overwritten.
+		otherAcct, err := json.Marshal(cachedModelsSnapshot{
+			ClientVersion: codexClientVersion,
+			AccountID:     "acct-other",
+			Models:        []upstreamModel{{Slug: "gpt-other", Visibility: "list"}},
+		})
+		require.NoError(t, err)
+		store.data = otherAcct
+		srv2 := &Server{
+			logger:           zerolog.Nop(),
+			credsFetcher:     stubCredentialsFetcher{},
+			httpClient:       stub,
+			modelsCacheStore: store,
+		}
+
+		catalog := srv2.modelCatalogFor(t.Context())
+		assert.True(t, catalog.lists("gpt-5.5"))
+		assert.False(t, catalog.lists("gpt-other"))
+		assert.Equal(t, 1, stub.calls)
+		assert.Equal(t, 1, store.saves)
+		assert.Equal(t, upstreamModelsTTL, store.ttl)
+
+		// A failed cold lookup persists backoff so subsequent stateless instances skip refetching.
+		store.data = nil
+		failingStub := &stubModelsHTTPClient{statusCode: http.StatusBadGateway}
+		srv3 := &Server{
+			logger:           zerolog.Nop(),
+			credsFetcher:     stubCredentialsFetcher{},
+			httpClient:       failingStub,
+			modelsCacheStore: store,
+		}
+		assert.Nil(t, srv3.modelCatalogFor(t.Context()))
+		assert.Equal(t, 1, failingStub.calls)
+
+		srv4 := &Server{
+			logger:           zerolog.Nop(),
+			credsFetcher:     stubCredentialsFetcher{},
+			httpClient:       failingStub,
+			modelsCacheStore: store,
+		}
+		assert.Nil(t, srv4.modelCatalogFor(t.Context()))
+		assert.Equal(t, 1, failingStub.calls, "stored backoff must prevent cold-instance refetch")
+	})
+}
+
+type atomicFailingModelsClient struct {
+	calls *atomic.Int32
+}
+
+func (c *atomicFailingModelsClient) Do(req *http.Request) (*http.Response, error) {
+	c.calls.Add(1)
+	return &http.Response{
+		StatusCode: http.StatusBadGateway,
+		Body:       io.NopCloser(strings.NewReader("upstream down")),
+		Header:     make(http.Header),
+		Request:    req,
+	}, nil
 }
 
 // blockingModelsHTTPClient holds every models request until release is closed.

@@ -135,8 +135,8 @@ func transformMessages(requestData map[string]interface{}) ([]interface{}, error
 // into the ChatGPT Codex backend body. This should be kept aligned with
 // recorded requests under Raw_*/[11] Request - chatgpt.com_backend-api_codex_responses.txt
 //
-// catalog is the live upstream listing used to keep model IDs the built-in
-// table does not know; nil falls back to built-in normalization only.
+// catalog is the live upstream listing used to preserve slugs that end in an
+// effort word and apply per-model effort defaults; nil skips catalog checks.
 func buildCodexRequestBody(requestData map[string]interface{}, catalog modelCatalog) map[string]interface{} {
 	instructions := extractInstructions(requestData)
 
@@ -285,6 +285,22 @@ func splitModelEffort(model string, catalog modelCatalog) (id, effort string) {
 	if catalog.lists(lower) {
 		return lower, ""
 	}
+	bestSlug := ""
+	bestEffort := ""
+	for _, listed := range catalog {
+		prefix := listed.Slug + "-"
+		if !strings.HasPrefix(lower, prefix) || len(listed.Slug) <= len(bestSlug) {
+			continue
+		}
+		suffix := strings.TrimPrefix(lower, prefix)
+		if suffix == "none" || slices.Contains(listed.efforts(), suffix) {
+			bestSlug = listed.Slug
+			bestEffort = suffix
+		}
+	}
+	if bestSlug != "" {
+		return bestSlug, bestEffort
+	}
 	for _, effort := range modelEffortSuffixes {
 		if strings.HasSuffix(lower, "-"+effort) {
 			return strings.TrimSuffix(lower, "-"+effort), effort
@@ -354,9 +370,8 @@ func resolveReasoningSummary(requestData map[string]interface{}) interface{} {
 
 func buildReasoningSettings(requestData map[string]interface{}, catalog modelCatalog) map[string]interface{} {
 	requestedEffort := resolveReasoningEffort(requestData, catalog)
-	normalizedEffort := normalizeReasoningEffort(requestedEffort)
 	backendModel := normalizeModel(resolveRequestModel(requestData), catalog)
-	clampedEffort := clampReasoningEffortForModel(normalizedEffort, backendModel, catalog)
+	clampedEffort := clampReasoningEffortForModel(requestedEffort, backendModel, catalog)
 	summary := resolveReasoningSummary(requestData)
 	settings := map[string]interface{}{}
 	if clampedEffort != "" {
@@ -371,19 +386,21 @@ func buildReasoningSettings(requestData map[string]interface{}, catalog modelCat
 // clampReasoningEffortForModel enforces per-model reasoning effort limits and
 // applies model-specific defaults when no explicit effort is provided.
 func clampReasoningEffortForModel(effort, backendModel string, catalog modelCatalog) string {
-	effort = strings.TrimSpace(effort)
 	allowed, defaultEffort := modelEffortPolicy(strings.TrimSpace(backendModel), catalog)
-
-	if effort == "" {
+	lower := strings.ToLower(strings.TrimSpace(effort))
+	normalized := normalizeReasoningEffort(lower)
+	if normalized == "" && slices.Contains(allowed, lower) {
+		normalized = lower
+	}
+	if normalized == "" {
 		return defaultEffort
 	}
-	if len(allowed) == 0 || slices.Contains(allowed, effort) {
-		return effort
+	// Upstream /codex/models omits "none" even on models that accept it, so
+	// pass an explicit "none" through and let the Responses API decide.
+	if normalized == "none" || len(allowed) == 0 || slices.Contains(allowed, normalized) {
+		return normalized
 	}
-	if defaultEffort != "" {
-		return defaultEffort
-	}
-	return effort
+	return defaultEffort
 }
 
 func derivePromptCacheKey(model, instructions, firstUserText string) string {

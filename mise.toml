@@ -8,7 +8,6 @@ description = "Build the codex-oauth-proxy binary"
 [tasks.build-worker]
 run = [
   "go run github.com/syumai/workers/cmd/workers-assets-gen -mode=go",
-  "cp ./cmd/codex-oauth-proxy-worker/worker.mjs ./build/worker.mjs",
   "GOOS=js GOARCH=wasm go build -o ./build/app.wasm ./cmd/codex-oauth-proxy-worker",
 ]
 description = "Build the Cloudflare Worker"
