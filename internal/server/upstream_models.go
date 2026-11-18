@@ -196,7 +196,7 @@ func (s *Server) refreshUpstreamModels(ctx context.Context) ([]upstreamModel, er
 	}
 
 	if len(visible) == 0 {
-		return nil, fmt.Errorf("upstream returned no usable models for client_version %s", codexClientVersion)
+		return nil, fmt.Errorf("upstream returned no usable models for client_version %s", s.codexClientVersion)
 	}
 
 	s.setModelsCache(visible)
@@ -204,7 +204,7 @@ func (s *Server) refreshUpstreamModels(ctx context.Context) ([]upstreamModel, er
 
 	s.logger.Info().
 		Int("model_count", len(visible)).
-		Str("client_version", codexClientVersion).
+		Str("client_version", s.codexClientVersion).
 		Msg("Refreshed upstream model list")
 
 	return visible, nil
@@ -260,7 +260,7 @@ func (s *Server) fetchUpstreamModelsOnce(ctx context.Context) (*upstreamModelsRe
 	}
 
 	query := req.URL.Query()
-	query.Set("client_version", codexClientVersion)
+	query.Set("client_version", s.codexClientVersion)
 	req.URL.RawQuery = query.Encode()
 
 	bareToken := strings.TrimSpace(token)
@@ -268,11 +268,10 @@ func (s *Server) fetchUpstreamModelsOnce(ctx context.Context) (*upstreamModelsRe
 		bareToken = strings.TrimSpace(bareToken[7:])
 	}
 
+	s.setCodexClientHeaders(req.Header)
 	req.Header.Set("authorization", "Bearer "+bareToken)
-	req.Header.Set("version", codexClientVersion)
 	req.Header.Set("chatgpt-account-id", accountID)
 	req.Header.Set("originator", "codex_cli_rs")
-	req.Header.Set("user-agent", "codex_cli_rs/"+codexClientVersion+" (Mac OS 26.3.0; arm64) Apple_Terminal/466")
 	req.Header.Set("accept", "application/json")
 
 	resp, err := s.httpClient.Do(req)
@@ -386,7 +385,7 @@ func (s *Server) loadStoredModelsCache() (models []upstreamModel, inBackoff bool
 		return nil, false
 	}
 	var snapshot cachedModelsSnapshot
-	if err := json.Unmarshal(data, &snapshot); err != nil || snapshot.ClientVersion != codexClientVersion {
+	if err := json.Unmarshal(data, &snapshot); err != nil || snapshot.ClientVersion != s.codexClientVersion {
 		return nil, false
 	}
 	accountID := s.currentAccountID()
@@ -414,7 +413,7 @@ func (s *Server) saveStoredModelsCache(accountID string, visible []upstreamModel
 		return
 	}
 	encoded, err := json.Marshal(cachedModelsSnapshot{
-		ClientVersion: codexClientVersion,
+		ClientVersion: s.codexClientVersion,
 		AccountID:     accountID,
 		Models:        visible,
 	})
@@ -431,7 +430,7 @@ func (s *Server) saveStoredModelsBackoff(retryAt time.Time) {
 		return
 	}
 	encoded, err := json.Marshal(cachedModelsSnapshot{
-		ClientVersion: codexClientVersion,
+		ClientVersion: s.codexClientVersion,
 		AccountID:     s.currentAccountID(),
 		RetryAtUnix:   retryAt.Unix(),
 	})

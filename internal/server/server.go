@@ -50,6 +50,9 @@ type Server struct {
 	deviceAuth        *DeviceAuth
 	modelsCacheStore  ModelsCacheStore
 
+	// Discovery and HTTP inference must agree because Codex gates models on the version.
+	codexClientVersion string
+
 	// Cached result of the upstream model listing, guarded by modelsCacheMu.
 	modelsCacheMu     sync.Mutex
 	modelsCache       []upstreamModel
@@ -78,11 +81,12 @@ func New(logger zerolog.Logger, credsFetcher credentials.CredentialsFetcher, opt
 	disableHealthLogs, _ := strconv.ParseBool(env.GetOrDefault("DISABLE_HEALTH_LOGS", "false"))
 
 	s := &Server{
-		credsFetcher:      credsFetcher,
-		httpClient:        NewHTTPClient(),
-		mux:               http.NewServeMux(),
-		logger:            logger,
-		disableHealthLogs: disableHealthLogs,
+		credsFetcher:       credsFetcher,
+		httpClient:         NewHTTPClient(),
+		mux:                http.NewServeMux(),
+		logger:             logger,
+		disableHealthLogs:  disableHealthLogs,
+		codexClientVersion: env.GetOrDefault("CODEX_CLIENT_VERSION", defaultCodexClientVersion),
 	}
 	for _, option := range options {
 		option(s)
@@ -581,6 +585,11 @@ func describeResponsesInputShape(body map[string]interface{}) []string {
 	return shapes
 }
 
+func (s *Server) setCodexClientHeaders(headers http.Header) {
+	headers.Set("version", s.codexClientVersion)
+	headers.Set("user-agent", "codex_cli_rs/"+s.codexClientVersion+" (Mac OS 26.3.0; arm64) Apple_Terminal/466")
+}
+
 func (s *Server) makeChatGPTRequest(r *http.Request, url string, body []byte, token, accountID string) (*http.Response, int, error) {
 	proxyReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
@@ -594,15 +603,14 @@ func (s *Server) makeChatGPTRequest(r *http.Request, url string, body []byte, to
 	}
 
 	// Set headers for ChatGPT backend
+	s.setCodexClientHeaders(proxyReq.Header)
 	proxyReq.Header.Set("authorization", "Bearer "+bareToken)
-	proxyReq.Header.Set("version", codexClientVersion)
 	proxyReq.Header.Set("openai-beta", "responses=experimental")
 	proxyReq.Header.Set("session_id", newUUIDv4())
 	proxyReq.Header.Set("accept", "text/event-stream")
 	proxyReq.Header.Set("content-type", "application/json")
 	proxyReq.Header.Set("chatgpt-account-id", accountID)
 	proxyReq.Header.Set("originator", "codex_cli_rs")
-	proxyReq.Header.Set("user-agent", "codex_cli_rs/"+codexClientVersion+" (Mac OS 26.3.0; arm64) Apple_Terminal/466")
 	proxyReq.Header.Set("x-codex-beta-features", "multi_agent,apps,prevent_idle_sleep")
 	// The CLI uses turn_id, so let's mock one
 	proxyReq.Header.Set("x-codex-turn-metadata", `{"turn_id":"`+newUUIDv4()+`","sandbox":"none"}`)

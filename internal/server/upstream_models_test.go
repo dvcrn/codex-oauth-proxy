@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -37,6 +38,46 @@ func (m *memoryModelsCacheStore) SaveModelsCache(data []byte, ttl time.Duration)
 func (m *memoryModelsCacheStore) ClearModelsCache() error {
 	m.data = nil
 	return nil
+}
+
+type codexVersionTestClient func(*http.Request) (*http.Response, error)
+
+func (f codexVersionTestClient) Do(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+func TestAdvertisedCodexClientVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name, override, want string
+	}{
+		{name: "default", want: defaultCodexClientVersion},
+		{name: "override", override: "0.166.0", want: "0.166.0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CODEX_CLIENT_VERSION", tc.override)
+			srv := New(zerolog.Nop(), stubCredentialsFetcher{})
+			stub := &stubModelsHTTPClient{body: upstreamModelsFixture}
+			srv.httpClient = codexVersionTestClient(func(r *http.Request) (*http.Response, error) {
+				assert.Equal(t, tc.want, r.Header.Get("version"), "%s version", r.Method)
+				assert.True(t, strings.HasPrefix(r.UserAgent(), "codex_cli_rs/"+tc.want+" "), "%s User-Agent: %q", r.Method, r.UserAgent())
+				if r.Method == http.MethodGet {
+					assert.Equal(t, tc.want, r.URL.Query().Get("client_version"))
+				}
+				return stub.Do(r)
+			})
+
+			_, _, status, _, err := srv.fetchUpstreamModelsOnce(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, status)
+
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			resp, status, err := srv.makeChatGPTRequest(req, "https://chatgpt.com/backend-api/codex/responses", []byte(`{}`), "test-token", "test-account")
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusOK, status)
+			assert.Equal(t, 2, stub.calls)
+		})
+	}
 }
 
 func TestModelCatalogForLookupPolicy(t *testing.T) {
@@ -149,9 +190,16 @@ func TestModelCatalogForLookupPolicy(t *testing.T) {
 	})
 
 	t.Run("external cache store scopes by version and account and persists backoff", func(t *testing.T) {
+		const version = "0.166.0"
+		t.Setenv("CODEX_CLIENT_VERSION", version)
 		store := &memoryModelsCacheStore{}
+		newServer := func(client HTTPClient) *Server {
+			srv := New(zerolog.Nop(), stubCredentialsFetcher{}, WithModelsCache(store))
+			srv.httpClient = client
+			return srv
+		}
 		encoded, err := json.Marshal(cachedModelsSnapshot{
-			ClientVersion: codexClientVersion,
+			ClientVersion: version,
 			AccountID:     "test-account",
 			Models:        []upstreamModel{{Slug: "gpt-7-cached", Visibility: "list"}},
 		})
@@ -159,58 +207,39 @@ func TestModelCatalogForLookupPolicy(t *testing.T) {
 		store.data = encoded
 
 		stub := &stubModelsHTTPClient{body: upstreamModelsFixture}
-		srv := &Server{
-			logger:           zerolog.Nop(),
-			credsFetcher:     stubCredentialsFetcher{},
-			httpClient:       stub,
-			modelsCacheStore: store,
-		}
-
-		assert.True(t, srv.modelCatalogFor(t.Context()).lists("gpt-7-cached"))
+		assert.True(t, newServer(stub).modelCatalogFor(t.Context()).lists("gpt-7-cached"))
 		assert.Equal(t, 0, stub.calls, "matching stored snapshot must skip upstream fetch")
 		assert.Equal(t, 1, store.loads)
 
 		// A snapshot for a different account must be ignored and overwritten.
 		otherAcct, err := json.Marshal(cachedModelsSnapshot{
-			ClientVersion: codexClientVersion,
+			ClientVersion: version,
 			AccountID:     "acct-other",
 			Models:        []upstreamModel{{Slug: "gpt-other", Visibility: "list"}},
 		})
 		require.NoError(t, err)
 		store.data = otherAcct
-		srv2 := &Server{
-			logger:           zerolog.Nop(),
-			credsFetcher:     stubCredentialsFetcher{},
-			httpClient:       stub,
-			modelsCacheStore: store,
-		}
 
-		catalog := srv2.modelCatalogFor(t.Context())
+		catalog := newServer(stub).modelCatalogFor(t.Context())
 		assert.True(t, catalog.lists("gpt-5.5"))
 		assert.False(t, catalog.lists("gpt-other"))
 		assert.Equal(t, 1, stub.calls)
 		assert.Equal(t, 1, store.saves)
 		assert.Equal(t, upstreamModelsTTL, store.ttl)
+		var saved cachedModelsSnapshot
+		require.NoError(t, json.Unmarshal(store.data, &saved))
+		assert.Equal(t, version, saved.ClientVersion)
+
+		t.Setenv("CODEX_CLIENT_VERSION", "0.169.0")
+		assert.True(t, newServer(stub).modelCatalogFor(t.Context()).lists("gpt-5.5"))
+		assert.Equal(t, 2, stub.calls, "a version change must refetch even for the same account")
 
 		// A failed cold lookup persists backoff so subsequent stateless instances skip refetching.
 		store.data = nil
 		failingStub := &stubModelsHTTPClient{statusCode: http.StatusBadGateway}
-		srv3 := &Server{
-			logger:           zerolog.Nop(),
-			credsFetcher:     stubCredentialsFetcher{},
-			httpClient:       failingStub,
-			modelsCacheStore: store,
-		}
-		assert.Nil(t, srv3.modelCatalogFor(t.Context()))
+		assert.Nil(t, newServer(failingStub).modelCatalogFor(t.Context()))
 		assert.Equal(t, 1, failingStub.calls)
-
-		srv4 := &Server{
-			logger:           zerolog.Nop(),
-			credsFetcher:     stubCredentialsFetcher{},
-			httpClient:       failingStub,
-			modelsCacheStore: store,
-		}
-		assert.Nil(t, srv4.modelCatalogFor(t.Context()))
+		assert.Nil(t, newServer(failingStub).modelCatalogFor(t.Context()))
 		assert.Equal(t, 1, failingStub.calls, "stored backoff must prevent cold-instance refetch")
 	})
 }
