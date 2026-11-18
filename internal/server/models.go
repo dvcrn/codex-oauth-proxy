@@ -5,7 +5,7 @@ package server
 // upstream requests and as the client_version query parameter when listing
 // models; the backend gates both model availability and protocol features on
 // it, so the two must stay in sync.
-const codexClientVersion = "0.163.0"
+const codexClientVersion = "0.170.0"
 
 // modelCatalog is the live upstream model listing. A nil or empty catalog is
 // valid when the upstream listing is unavailable.
