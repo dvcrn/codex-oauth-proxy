@@ -3,9 +3,13 @@
 package server
 
 import (
+	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -96,4 +100,111 @@ func TestRealtimeTranscriptionRelay(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, websocket.TextMessage, kind)
 	require.Equal(t, transcript, string(payload))
+}
+
+type realtimeRetryCredentials struct {
+	refreshes  atomic.Int32
+	refreshErr error
+}
+
+func (f *realtimeRetryCredentials) GetCredentials() (string, string, error) {
+	if f.refreshes.Load() > 0 {
+		return "fresh-token", "", nil
+	}
+	return "stale-token", "stale-account", nil
+}
+
+func (f *realtimeRetryCredentials) RefreshCredentials() error {
+	f.refreshes.Add(1)
+	return f.refreshErr
+}
+
+func TestRealtimeTranscriptionHandshakeRetry(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		firstStatus int
+		retryStatus int
+		refreshErr  error
+		wantStatus  int
+		wantCalls   int32
+		wantRefresh int32
+	}{
+		{"refresh and upgrade", 401, 101, nil, 101, 2, 1},
+		{"stop after second unauthorized", 401, 401, nil, 401, 2, 1},
+		{"forbidden is not retried", 403, 0, nil, 403, 1, 0},
+		{"refresh failure preserves status", 401, 0, errors.New("refresh failed"), 401, 1, 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			creds := &realtimeRetryCredentials{refreshErr: test.refreshErr}
+			var upstreamCalls atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				call := upstreamCalls.Add(1)
+				if call == 1 {
+					assert.Equal(t, "Bearer stale-token", r.Header.Get("Authorization"))
+					assert.Equal(t, "stale-account", r.Header.Get("ChatGPT-Account-ID"))
+					w.WriteHeader(test.firstStatus)
+					return
+				}
+				if !assert.Equal(t, int32(2), call) || !assert.NotZero(t, test.retryStatus) {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				assert.Equal(t, "Bearer fresh-token", r.Header.Get("Authorization"))
+				assert.Empty(t, r.Header.Get("ChatGPT-Account-ID"))
+				if test.retryStatus != http.StatusSwitchingProtocols {
+					w.WriteHeader(test.retryStatus)
+					return
+				}
+				upgrader := websocket.Upgrader{}
+				conn, err := upgrader.Upgrade(w, r, nil)
+				if assert.NoError(t, err) {
+					conn.Close()
+				}
+			}))
+			defer upstream.Close()
+
+			target := realtimeTranscriptionUpstream
+			target.Scheme = "http"
+			target.Host = strings.TrimPrefix(upstream.URL, "http://")
+			server := New(zerolog.Nop(), creds)
+			downstream := httptest.NewServer(server.realtimeTranscriptionHandler(target))
+			defer downstream.Close()
+
+			dialer := websocket.Dialer{HandshakeTimeout: 3 * time.Second}
+			conn, response, err := dialer.Dial("ws"+strings.TrimPrefix(downstream.URL, "http")+"/v1/realtime?intent=transcription", nil)
+			if test.wantStatus == http.StatusSwitchingProtocols {
+				require.NoError(t, err)
+				defer conn.Close()
+			} else {
+				require.ErrorIs(t, err, websocket.ErrBadHandshake)
+			}
+			require.NotNil(t, response)
+			assert.Equal(t, test.wantStatus, response.StatusCode)
+			assert.Equal(t, test.wantCalls, upstreamCalls.Load())
+			assert.Equal(t, test.wantRefresh, creds.refreshes.Load())
+		})
+	}
+}
+
+func TestRealtimeTranscriptionSanitizesProxyErrors(t *testing.T) {
+	const rawDetail = "private-proxy-detail"
+	var logs bytes.Buffer
+	server := New(zerolog.New(&logs), stubCredentialsFetcher{})
+	handler := server.realtimeTranscriptionHandler(url.URL{Scheme: rawDetail, Host: "example.test"})
+	request := httptest.NewRequest(http.MethodGet, "/v1/realtime?intent=transcription", nil)
+	request.Header.Set("Connection", "Upgrade")
+	request.Header.Set("Upgrade", "websocket")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+	assert.Equal(t, http.StatusBadGateway, response.Code)
+	assert.Contains(t, logs.String(), "Realtime transcription proxy request failed")
+	assert.NotContains(t, logs.String(), rawDetail)
+
+	errorLog := realtimeProxyErrorLog{logger: server.logger}
+	count, err := errorLog.Write([]byte(rawDetail))
+	require.NoError(t, err)
+	assert.Equal(t, len(rawDetail), count)
+	assert.Contains(t, logs.String(), "Realtime transcription proxy response copy failed")
+	assert.NotContains(t, logs.String(), rawDetail)
 }
