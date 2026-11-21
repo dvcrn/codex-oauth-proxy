@@ -112,6 +112,7 @@ codex-oauth-proxy --creds-store=legacy
 | --- | --- |
 | `POST /v1/chat/completions` | OpenAI-compatible chat completions |
 | `POST /v1/responses` | OpenAI-compatible Responses API |
+| `GET /v1/realtime?intent=transcription` | Realtime transcription WebSocket (native Go build only) |
 | `GET /v1/models` | Models available to the signed-in account, including reasoning-effort variants |
 | `POST /mcp` | Stateless MCP server with `ask_codex` and `ask_codex_models` |
 | `POST /admin/auth/start` | Start Workers device authorization |
@@ -124,6 +125,8 @@ codex-oauth-proxy --creds-store=legacy
 The model list comes from the Codex backend. Query `/v1/models` instead of hard-coding model IDs. Clients that cannot set reasoning effort separately can append a suffix such as `-low`, `-medium`, `-high`, `-xhigh`, or `-max` when supported by that model.
 
 `/v1/responses` returns a JSON Response when `stream` is omitted or `false`; set `stream: true` to receive SSE events.
+
+For Realtime transcription, connect to `/v1/realtime?intent=transcription` with a WebSocket upgrade and `Authorization: Bearer <ADMIN_API_KEY>`. Send a `session.update` event with `session.type` set to `transcription` and the model in `session.audio.input.transcription.model`. The proxy uses its Codex OAuth credential upstream. The Cloudflare Workers build does not expose this endpoint.
 
 ## MCP clients
 
