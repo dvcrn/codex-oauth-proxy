@@ -99,6 +99,9 @@ func New(logger zerolog.Logger, credsFetcher credentials.CredentialsFetcher, opt
 func (s *Server) setupRoutes() {
 	s.mux.HandleFunc("/v1/chat/completions", s.adminMiddleware(s.chatCompletionsHandler))
 	s.mux.HandleFunc("/v1/responses", s.adminMiddleware(s.responsesHandler))
+	if supportsWebSocketUpstream() {
+		s.mux.HandleFunc("/v1/realtime", s.adminMiddleware(s.realtimeTranscriptionHandler(realtimeTranscriptionUpstream)))
+	}
 	s.mux.HandleFunc("/v1/models", s.modelsHandler)
 	s.mux.HandleFunc("/health", s.healthHandler)
 	s.mux.HandleFunc("/admin/credentials", s.adminMiddleware(s.credentialsHandler))
